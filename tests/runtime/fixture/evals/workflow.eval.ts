@@ -1,8 +1,24 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { setTimeout } from "node:timers/promises";
 import { defineEval, type EveEvalContext, type EveEvalTurn } from "eve/evals";
 import { equals } from "eve/evals/expect";
 import type { MessageStreamEvent } from "eve/client";
 import { browserTaskReceiptSchema } from "@agent/lib/browser-task";
 import { taskCompletionOutputSchema } from "@agent/subagents/browser-agent/lib/completion";
+
+async function waitForToolMarker(
+  sessionId: string,
+  marker: "started" | "aborted",
+  signal: AbortSignal
+) {
+  const deadline = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+  // The tool executes in Eve's worker process; its marker proves entry or abort observation.
+  while (!existsSync(join(".eve", "fixture-tool", sessionId, marker))) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- bounded observation of a marker written by the runtime worker.
+    await setTimeout(10, undefined, { signal: deadline });
+  }
+}
 
 async function followUntil(
   t: EveEvalContext,
@@ -131,6 +147,7 @@ export default [
         }
       }
       t.check(toolStarted, equals(true));
+      await waitForToolMarker(called.data.childSessionId, "started", t.signal);
       const cancelled = await first.session.send(
         `Cancel:${parsed.output.taskId}`
       );
@@ -150,6 +167,7 @@ export default [
           throw new Error("Cancelled worker produced a successful result.");
       }
       t.check(childCancelled, equals(true));
+      await waitForToolMarker(called.data.childSessionId, "aborted", t.signal);
       const resumed = await cancelled.session.send(
         `Resume:${String(called.data.agentId)}`
       );
