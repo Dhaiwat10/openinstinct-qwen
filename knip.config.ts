@@ -16,6 +16,8 @@ export default {
     "evals/**/*.eval.ts",
     "evals/evals.config.ts",
     "taze.config.ts",
+    "tests/runtime/fixture/agent/**/*.ts",
+    "tests/runtime/fixture/evals/**/*.ts",
   ],
   ignoreDependencies: [
     // Type owners referenced by the Eve declaration patch, which Knip does not parse.

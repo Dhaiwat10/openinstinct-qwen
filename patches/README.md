@@ -1,37 +1,24 @@
-# Eve and Linq patches
+# Eve and Linq compatibility patches
 
-Eve is pinned to the official, immutable `pkg.eve.dev` build at
-`59ec96cc99f65a80f7a2daf4ca5e2a0ad95455f2` (`0.52.2+main.59ec96cc99f65a80`).
-It includes the merged turn-context placement fix in
-[vercel/eve#3089](https://github.com/vercel/eve/pull/3089), which is absent from
-npm's `0.52.2` release. Return to a registry version once a release contains this
-commit and the patches below have been checked against it.
+Eve is pinned to the published `0.67.2` release.
 
-The tarball SHA-256 is
-`633c0d9ebf5d0d5733d8cc2fdc5315952a7ccca8cb7902c31f550dc8ab0750a9`.
-The lockfile also records its package integrity. pnpm matches URL dependency
-patches by package name, so keep the immutable dependency pin when changing the
-Eve patch.
+`@linqapp__chat-sdk-adapter@0.5.1.patch` adds the native reply option to
+the separately installed adapter while preserving attachments and idempotency.
+The application delivery tests exercise that adapter.
 
-## Remaining patches
+`eve@0.67.2.patch` preserves native Linq replies and restores task cancellation:
 
-- `@linqapp__chat-sdk-adapter@0.5.1.patch` adds `replyToMessageId` to native
-  message delivery, preserving attachments and idempotency keys.
-- `eve@0.52.2+main.59ec96cc99f65a80.patch` applies that same reply option to the
-  adapter Eve actually bundles. It also redirects incomplete bundled Linq and
-  Chat SDK declaration exports to the explicitly installed packages. Eve's
-  runtime still uses its bundled adapter and Chat SDK.
+- The bundled Linq adapter forwards `replyToMessageId` as `reply_to` and uses
+  the installed adapter declarations. The provider-request regression lives in
+  `tests/agent/channels/linq-bundled-adapter.test.ts`.
+- Eve registers an explicitly restored `task_cancel` as an authored tool. Its
+  runtime only assigns cancellation dispatch to framework-owned tools, leaving
+  the restored tool advertised but without an executor. Recognize the reserved
+  `task_cancel` name in that existing dispatch path, as Eve's built-in-tool docs
+  specify that its framework behavior cannot be overridden. Keep all other
+  authored tools on their existing path.
 
-Remove reply changes when upstream Linq and Eve's bundled adapter both support
-native replies. Remove declaration bridges when the published declaration
-files resolve without them. `linq-bundled-adapter.test.ts` exercises Eve's actual
-bundled runtime; `linq-message-delivery.test.ts` covers application delivery and
-the separately installed adapter.
-
-The old Eve patches for `ask_question` and `task_cancel` exports are no longer
-needed: both now have public entry points. Callback authorization is composed
-in `agent/channels/eve.ts` using public `defineChannel` and `routeAuth` APIs.
-The Linq webhook verifier already converts an unsuccessful OIDC verification
-into `false`, so the extra bundled null-verifier patch was redundant.
-
-No task-loop or prompt-placement patch is applied locally.
+`pnpm test:runtime` exercises the production tool declarations with
+`defaultTools: false`, waits for child work to start, cancels it, and checks the
+child's cancellation event. Remove each patch hunk when an upstream release
+passes its corresponding regression without the hunk.

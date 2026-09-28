@@ -1,6 +1,15 @@
 # Agent evals
 
-The eval tree has two intentionally separate tiers:
+Validation has three separate tiers:
+
+- `pnpm test:runtime` compiles and runs the production browser workflow in an
+  isolated Eve app with deterministic model responses. It checks structured
+  completion, worker continuation, and cancellation of an active child tool.
+  It needs no Gateway key, Kernel key, database, or Docker service. CI runs it
+  after `pnpm check`. Reports are saved under `.eve/runtime-smoke/`.
+  The runner copies current production tool source on each run; it does not
+  maintain a second implementation. This tests Eve lifecycle behavior, not
+  model judgment or real browser interaction.
 
 - `agent/` is the behavioral regression suite for the root coordinator. It
   covers conversation quality, tool routing, safety and approval boundaries,

@@ -117,7 +117,8 @@
     "types:check:app": "tsc --noEmit -p tsconfig.json",
     "build:eve": "eve build",
     "dev:eve": "eve dev",
-    "start:eve": "eve start"
+    "start:eve": "eve start",
+    "test:runtime": "node --experimental-strip-types scripts/run-runtime-smoke.ts"
   },
   "version": "0.0.0",
   "type": "module"
