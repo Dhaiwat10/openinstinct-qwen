@@ -354,9 +354,6 @@ function toolContext(
     async getSandbox() {
       throw new Error("Sandbox access is not expected.");
     },
-    getSkill() {
-      throw new Error("Skill access is not expected.");
-    },
     async getToken() {
       throw new Error("Token access is not expected.");
     },

@@ -26,6 +26,7 @@ describe("root and worker capability boundaries", () => {
       "contacts.ts",
       "gmail.ts",
       "messaging.ts",
+      "run_browser.ts",
       "schedules.ts",
       "task_cancel.ts",
       "vault.ts",
@@ -59,7 +60,6 @@ describe("root and worker capability boundaries", () => {
 
   it("gives worker the browser and opaque-vault tools without messaging", () => {
     expect(toolFiles(workerTools)).toEqual([
-      "ask_question.ts",
       "bash.ts",
       "capture_browser_image.ts",
       "computer_action.ts",
@@ -70,7 +70,6 @@ describe("root and worker capability boundaries", () => {
       "personal_info.ts",
       "read_file.ts",
       "semantic_browser.ts",
-      "todo.ts",
       "web_fetch.ts",
       "web_search.ts",
       "write_file.ts",
@@ -79,9 +78,7 @@ describe("root and worker capability boundaries", () => {
     expect(existsSync(`${workerRoot}/tools/request_vault_setup.ts`)).toBe(
       false
     );
-    expect(readFileSync(`${workerTools}/ask_question.ts`, "utf8")).toContain(
-      "disableTool()"
-    );
+    expect(existsSync(`${workerTools}/ask_question.ts`)).toBe(false);
     expect(readFileSync(`${workerTools}/personal_info.ts`, "utf8")).toContain(
       "disableTool()"
     );
@@ -89,7 +86,6 @@ describe("root and worker capability boundaries", () => {
       "bash",
       "load_skill",
       "read_file",
-      "todo",
       "web_fetch",
       "web_search",
       "write_file",
@@ -180,10 +176,7 @@ describe("root and worker capability boundaries", () => {
     const workerConfig = readFileSync(`${workerRoot}/agent.ts`, "utf8");
 
     expect(workerCoordination).toContain(
-      "Every initial or resumed `browser-agent` call must set `outputSchema`"
-    );
-    expect(workerCoordination).toContain(
-      '"required": ["status", "message", "images"]'
+      "tool supplies the required structured completion schema"
     );
     expect(workerCoordination).toContain(
       "including when passing an existing `agentId`"
@@ -191,9 +184,7 @@ describe("root and worker capability boundaries", () => {
     expect(workerCoordination).toContain(
       "calling Eve's native `final_output` tool exactly once"
     );
-    expect(workerConfig).toContain("outputSchema: taskCompletionSchema");
-    expect(workerConfig).toContain(
-      "Every initial and resumed call must include the task-completion outputSchema"
-    );
+    expect(workerConfig).toContain("tool: false");
+    expect(workerConfig).not.toContain("outputSchema:");
   });
 });

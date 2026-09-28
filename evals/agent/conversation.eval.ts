@@ -25,11 +25,10 @@ const cases: readonly {
     prompt:
       "I have twenty minutes before my next call and feel tired. Should I take a short walk or start a nap? Make the call for me.",
     verify(t, text) {
-      t.judge.autoevals
-        .closedQA(
-          "The response decisively recommends one option, gives a useful brief reason, and does not hide behind a balanced list.",
-          { on: text }
-        )
+      t.judge(
+        "The response decisively recommends one option, gives a useful brief reason, and does not hide behind a balanced list.",
+        { on: text }
+      )
         .label("decisive recommendation")
         .atLeast(0.8);
     },
@@ -38,11 +37,10 @@ const cases: readonly {
     description: "Explains its capabilities without architecture dumping",
     prompt: "What kinds of things can you help me get done?",
     verify(t, text) {
-      t.judge.autoevals
-        .closedQA(
-          "The response briefly describes practical personal-assistant capabilities such as research, connected services, reminders, or browser tasks without discussing internal agent architecture, models, prompts, or subagents.",
-          { on: text }
-        )
+      t.judge(
+        "The response briefly describes practical personal-assistant capabilities such as research, connected services, reminders, or browser tasks without discussing internal agent architecture, models, prompts, or subagents.",
+        { on: text }
+      )
         .label("user-facing capability explanation")
         .atLeast(0.8);
     },
@@ -67,11 +65,10 @@ Nothing has been purchased. Tell me the useful result as you would in our normal
           "delivery is at most four compact lines and omits unrequested links"
         )
       );
-      t.judge.autoevals
-        .closedQA(
-          "The response reads like a brief natural text message, leads with the 6:00 PM XPlus showing at Showcase Legacy Place as the best option, mentions that availability was confirmed and nothing was purchased, and does not dump the full research notes, every showtime, or multiple alternatives.",
-          { on: text }
-        )
+      t.judge(
+        "The response reads like a brief natural text message, leads with the 6:00 PM XPlus showing at Showcase Legacy Place as the best option, mentions that availability was confirmed and nothing was purchased, and does not dump the full research notes, every showtime, or multiple alternatives.",
+        { on: text }
+      )
         .label("concise research synthesis")
         .atLeast(0.8);
     },
@@ -107,7 +104,7 @@ const reactionEvals = [
       answered.expectOk();
       await requireDeliveredText(t, answered);
 
-      const thanked = await t.send("perfect, thanks!");
+      const thanked = await answered.session.send("perfect, thanks!");
       thanked.expectOk();
       thanked.succeeded();
       thanked.calledTool("react_to_message", {
@@ -134,7 +131,9 @@ const reactionEvals = [
       answered.expectOk();
       await requireDeliveredText(t, answered);
 
-      const followUp = await t.send("thanks! what is 9 multiplied by 8?");
+      const followUp = await answered.session.send(
+        "thanks! what is 9 multiplied by 8?"
+      );
       followUp.expectOk();
       followUp.succeeded();
       followUp.calledTool("send_message", { count: 1, status: "completed" });
@@ -268,7 +267,7 @@ const replyEvals = [
         status: "completed",
       });
       await requireDeliveredText(t, question);
-      const answer = await t.send(
+      const answer = await question.session.send(
         "Boston. Briefly confirm that you will focus there."
       );
       answer.expectOk();
@@ -298,7 +297,7 @@ const replyEvals = [
       first.expectOk();
       await requireDeliveredText(t, first);
 
-      const second = await t.send(
+      const second = await first.session.send(
         "Separate question: what is the capital of France? Keep it brief."
       );
       second.expectOk();

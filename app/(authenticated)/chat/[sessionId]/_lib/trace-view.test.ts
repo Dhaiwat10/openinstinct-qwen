@@ -3,11 +3,28 @@ import type { EveMessage } from "eve/react";
 import { describe, expect, it } from "vitest";
 import {
   backgroundWorkerDeliveryMessageIds,
-  hasPendingBackgroundWorker,
   messagesForTraceView,
 } from "./trace-view";
 
 describe("trace view", () => {
+  it("hides explicit framework task input without hiding the assistant report", () => {
+    const event = receivedMessage("task-delivery", "A cohort completed.");
+    const background = {
+      ...event,
+      data: { ...event.data, kind: "execution.background_task" as const },
+    };
+    const messages = [
+      userMessage("task-delivery", "A cohort completed."),
+      assistantMessage("task-delivery", "Here is the result."),
+    ];
+    expect(messagesForTraceView(messages, [background], "imessage")).toEqual([
+      messages[1],
+    ]);
+    expect(messagesForTraceView(messages, [event], "imessage")).toEqual(
+      messages
+    );
+  });
+
   it.each([
     ["update", "update: Checking availability", false],
     ["input", "needs input.", false],
@@ -95,24 +112,6 @@ describe("trace view", () => {
       messages.slice(0, 2)
     );
   });
-
-  it("tracks a worker only between its receipt and terminal delivery", () => {
-    const receipt = workerActionReceipt("task_worker");
-    const update = receivedMessage(
-      "task-update",
-      "Background task task_worker (browser-agent) update: Still working"
-    );
-    const completed = receivedMessage(
-      "task-completed",
-      'Background task task_worker (browser-agent) is completed.\n\nResult:\n{"message":"Done"}'
-    );
-
-    expect(hasPendingBackgroundWorker([receipt])).toBe(true);
-    expect(hasPendingBackgroundWorker([receipt, update])).toBe(true);
-    expect(hasPendingBackgroundWorker([receipt, update, completed])).toBe(
-      false
-    );
-  });
 });
 
 function workerCompletedReceipt(taskId: string): MessageStreamEvent {
@@ -194,12 +193,12 @@ function workerCancellationResult(taskId: string): MessageStreamEvent {
   };
 }
 
-function receivedMessage(turnId: string, message: string): MessageStreamEvent {
+function receivedMessage(turnId: string, message: string) {
   return {
     data: { message, sequence: 0, turnId },
     meta: { at: "2026-08-27T20:00:01.000Z", id: `event-${turnId}` },
     type: "message.received",
-  };
+  } satisfies MessageStreamEvent;
 }
 
 function userMessage(turnId: string, text: string): EveMessage {

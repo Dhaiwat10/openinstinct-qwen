@@ -1,7 +1,7 @@
 import { defineEvalConfig } from "eve/evals";
 
 export default defineEvalConfig({
-  judge: { model: "openai/gpt-5.4-mini" },
+  judge: { model: "typesafe-ai/jev" },
   maxConcurrency: 4,
   timeoutMs: 180_000,
 });

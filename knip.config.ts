@@ -5,6 +5,7 @@ export default {
     "agent/channels/**/*.ts",
     "agent/hooks/**/*.ts",
     "agent/instructions/**/*.ts",
+    "agent/instrumentation/**/*.ts",
     "agent/memory/**/*.ts",
     "agent/subagents/**/*.ts",
     "agent/schedules/**/*.ts",

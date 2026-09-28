@@ -980,9 +980,6 @@ function sessionContext(
     async getSandbox() {
       throw new Error("Sandbox access is outside this focused test.");
     },
-    getSkill() {
-      throw new Error("Skill access is outside this focused test.");
-    },
     session: {
       auth: {
         current: {

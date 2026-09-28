@@ -67,18 +67,24 @@ describe("reply targets", () => {
     ).toBeUndefined();
   });
 
-  it("registers background subagent receipts through the public hook", async () => {
-    const handler = backgroundReplyTargetHook.events?.["subagent.completed"];
+  it("registers background workflow receipts through the public hook", async () => {
+    const handler = backgroundReplyTargetHook.events?.["action.result"];
     await handler?.(
       {
         data: {
-          backgroundTask: { status: "working", taskId: "task-from-hook" },
-          callId: "call-1",
-          output: "Delegated",
-          subagentName: "browser-agent",
+          result: {
+            kind: "tool-result",
+            callId: "call-1",
+            toolName: "run_browser",
+            output: { status: "working", taskId: "task-from-hook" },
+          },
+          status: "completed",
+          sequence: 1,
+          turnId: "turn-1",
+          stepIndex: 0,
         },
         meta: { at: "2026-09-03T12:00:00.000Z", id: "event-1" },
-        type: "subagent.completed",
+        type: "action.result",
       },
       hookContext(linqAuth("hook-origin"))
     );
@@ -170,9 +176,6 @@ function hookContext(auth: SessionAuth): HookContext {
     channel: { kind: "channel:linq" },
     async getSandbox() {
       throw new Error("Sandbox access is outside this focused test.");
-    },
-    getSkill() {
-      throw new Error("Skill access is outside this focused test.");
     },
     session: {
       auth,

@@ -428,9 +428,6 @@ function context(sessionId: string, authenticator = "authjs") {
     getSandbox() {
       throw new Error("Sandbox access is outside this test.");
     },
-    getSkill() {
-      throw new Error("Skill access is outside this test.");
-    },
     memory: {
       scope: {
         key: "key-a",

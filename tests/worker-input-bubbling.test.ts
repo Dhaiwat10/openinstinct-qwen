@@ -1,6 +1,6 @@
 import type * as RuntimeSubagentConfig from "../node_modules/eve/dist/src/runtime/subagents/dynamic-agent-config.js";
 import type * as RuntimeContext from "../node_modules/eve/dist/src/context/container.js";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import browserAgent from "@agent/subagents/browser-agent/agent";
 
@@ -20,12 +20,9 @@ const { ContextContainer } = await vi.importActual<typeof RuntimeContext>(
 
 describe("worker input bubbling", () => {
   it("keeps native questions disabled inside browser workers", () => {
-    const askQuestionTool = readFileSync(
-      "agent/subagents/browser-agent/tools/ask_question.ts",
-      "utf8"
-    );
-
-    expect(askQuestionTool).toMatch(/disableTool\(\)/);
+    expect(
+      existsSync("agent/subagents/browser-agent/tools/ask_question.ts")
+    ).toBe(false);
   });
 
   it("accepts the selected browser worker through Eve's runtime normalization", async () => {

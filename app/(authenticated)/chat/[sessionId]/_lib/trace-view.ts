@@ -32,8 +32,8 @@ export function messagesForTraceView(
 export function backgroundWorkerDeliveryMessageIds(
   events: readonly MessageStreamEvent[]
 ) {
-  // Eve task deliveries currently share message.received with user input, so
-  // require both its exact framework grammar and a receipt from this worker.
+  // Retain grammar-based filtering for saved streams from Eve < 0.61.
+  // Current streams carry explicit background-task provenance.
   const taskIds = workerTaskIds(events);
   const cancelledTaskIds = new Set<string>();
   const messageIds = new Set<string>();
@@ -50,6 +50,10 @@ export function backgroundWorkerDeliveryMessageIds(
     }
 
     if (event.type !== "message.received") continue;
+    if (event.data.kind === "execution.background_task") {
+      messageIds.add(`${event.data.turnId}:user`);
+      continue;
+    }
     const taskId = deliveredTaskId(event.data.message);
     if (taskId && taskIds.has(taskId)) {
       const isCancellation = event.data.message.endsWith(
@@ -64,57 +68,6 @@ export function backgroundWorkerDeliveryMessageIds(
   }
 
   return messageIds;
-}
-
-export function hasPendingBackgroundWorker(
-  events: readonly MessageStreamEvent[]
-) {
-  const taskIds = new Set<string>();
-
-  for (const event of events) {
-    if (
-      event.type === "subagent.completed" &&
-      event.data.subagentName === "browser-agent" &&
-      event.data.backgroundTask !== undefined
-    ) {
-      taskIds.add(event.data.backgroundTask.taskId);
-      continue;
-    }
-
-    if (event.type === "action.result") {
-      const result = event.data.result;
-      if (
-        result.kind === "subagent-result" &&
-        result.subagentName === "browser-agent" &&
-        result.origin === "child" &&
-        result.backgroundTask !== undefined
-      ) {
-        taskIds.add(result.backgroundTask.taskId);
-        continue;
-      }
-
-      const cancellation = taskCancelResultSchema.safeParse(result);
-      if (!cancellation.success) continue;
-      for (const value of cancellation.data.output.tasks) {
-        const task = cancelledWorkerTaskSchema.safeParse(value);
-        if (task.success) taskIds.delete(task.data.taskId);
-      }
-      continue;
-    }
-
-    if (event.type !== "message.received") continue;
-    const taskId = deliveredTaskId(event.data.message);
-    if (
-      taskId &&
-      !event.data.message.startsWith(
-        `Background task ${taskId} (browser-agent) update: `
-      )
-    ) {
-      taskIds.delete(taskId);
-    }
-  }
-
-  return taskIds.size > 0;
 }
 
 function workerTaskIds(events: readonly MessageStreamEvent[]) {

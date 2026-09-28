@@ -1,4 +1,4 @@
-import type { AudienceInput } from "eve/channels";
+import type { AudienceContext } from "eve/channels";
 import type * as CompiledChannel from "../../../node_modules/eve/dist/src/channel/compiled-channel.js";
 import { describe, expect, it, vi } from "vitest";
 import eve from "@agent/channels/eve";
@@ -19,7 +19,7 @@ describe("compiled channel compatibility", () => {
   });
 
   it.each([
-    { channel: eve, anonymousAudience: "public" },
+    { channel: eve, anonymousAudience: "unknown" },
     { channel: scheduledRun, anonymousAudience: "unknown" },
   ])(
     "keeps authenticated conversations private",
@@ -31,17 +31,28 @@ describe("compiled channel compatibility", () => {
       const input = {
         channel: { kind: "http" },
         environment: "production",
-        mode: "conversation",
+        caller: {
+          type: "principal",
+          principal: {
+            kind: "user",
+            authenticator: "scheduled-worker",
+            attributes: {},
+          },
+        },
         state: undefined,
+        // oxlint-disable-next-line typescript/no-deprecated -- Eve still requires the legacy field in the compiled adapter contract.
         auth: {
           attributes: {},
           authenticator: "scheduled-worker",
           principalType: "user",
         },
-      } satisfies AudienceInput<undefined>;
+      } satisfies AudienceContext<undefined>;
 
       expect(audience(input)).toBe("private");
-      expect(audience({ ...input, auth: null })).toBe(anonymousAudience);
+      expect(
+        // oxlint-disable-next-line typescript/no-deprecated -- Exercise anonymous projection of the compiled adapter contract.
+        audience({ ...input, auth: null, caller: { type: "anonymous" } })
+      ).toBe(anonymousAudience);
     }
   );
 });
