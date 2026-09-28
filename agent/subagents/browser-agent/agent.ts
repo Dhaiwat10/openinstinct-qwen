@@ -1,6 +1,5 @@
 import { defineAgent, defineDynamic } from "eve";
 import { resolveModeValue } from "@agent/lib/mode";
-import { taskCompletionSchema } from "@agent/subagents/browser-agent/lib/completion";
 
 export default defineDynamic({
   build: {
@@ -9,11 +8,11 @@ export default defineDynamic({
   events: {
     "turn.started": (_event, context) => {
       const worker = defineAgent({
+        tool: false,
         description:
-          "Execute one bounded browser assignment for the root coordinator, including secure vault autofill, transaction preparation, optional durable browser images, human-takeover handoff, cleanup, and a concise verified result. Every initial and resumed call must include the task-completion outputSchema required by the root instructions.",
+          "Execute one bounded browser assignment for the root coordinator, including secure vault autofill, transaction preparation, optional durable browser images, human-takeover handoff, cleanup, and a concise verified result.",
         model: "meta/muse-spark-1.3",
         reasoning: "low",
-        outputSchema: taskCompletionSchema,
         compaction: {
           thresholdPercent: 0.7,
         },

@@ -35,3 +35,6 @@ jobs:
 
       - name: Run checks
         run: pnpm check
+
+      - name: Test Eve workflow runtime
+        run: pnpm test:runtime

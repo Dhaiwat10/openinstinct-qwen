@@ -106,7 +106,7 @@ export default defineEval({
           count: 1,
         });
       }
-      report.notCalledTool("browser-agent");
+      report.notCalledTool("run_browser");
       mainEventIndex += report.events.length;
     };
 

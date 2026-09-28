@@ -35,9 +35,6 @@ const context = {
   async getSandbox() {
     throw new Error("Sandbox access is outside this focused test.");
   },
-  getSkill() {
-    throw new Error("Skill access is outside this focused test.");
-  },
   session: {
     auth: {
       current: null,
@@ -203,17 +200,23 @@ describe("scheduled run completion hook", () => {
   });
 
   it("defers an interim outcome until background work wakes a later turn", async () => {
-    const delegated = completionHook.events?.["subagent.completed"];
+    const delegated = completionHook.events?.["action.result"];
     await delegated?.(
       {
         data: {
-          backgroundTask: { status: "working", taskId: "task-1" },
-          callId: "call-1",
-          output: '{"status":"working"}',
-          subagentName: "browser-agent",
+          result: {
+            kind: "tool-result",
+            callId: "call-1",
+            toolName: "run_browser",
+            output: { status: "working", taskId: "task-1" },
+          },
+          status: "completed",
+          sequence: 1,
+          stepIndex: 0,
+          turnId: "turn-1",
         },
         meta: { at: "2026-09-01T13:01:00.000Z", id: "event-task" },
-        type: "subagent.completed",
+        type: "action.result",
       },
       context
     );

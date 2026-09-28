@@ -40,9 +40,6 @@ function toolContext() {
     async getSandbox() {
       throw new Error("Sandbox access is outside this focused test.");
     },
-    getSkill() {
-      throw new Error("Skill access is outside this focused test.");
-    },
     async getToken() {
       throw new Error("Token access is outside this focused test.");
     },

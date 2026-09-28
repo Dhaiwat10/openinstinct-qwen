@@ -5,6 +5,7 @@ export default {
     "agent/channels/**/*.ts",
     "agent/hooks/**/*.ts",
     "agent/instructions/**/*.ts",
+    "agent/instrumentation/**/*.ts",
     "agent/memory/**/*.ts",
     "agent/subagents/**/*.ts",
     "agent/schedules/**/*.ts",
@@ -15,6 +16,8 @@ export default {
     "evals/**/*.eval.ts",
     "evals/evals.config.ts",
     "taze.config.ts",
+    "tests/runtime/fixture/agent/**/*.ts",
+    "tests/runtime/fixture/evals/**/*.ts",
   ],
   ignoreDependencies: [
     // Type owners referenced by the Eve declaration patch, which Knip does not parse.

@@ -97,10 +97,7 @@ describe("agent instructions", () => {
     );
     for (const selected of selections) {
       expect(selected?.content).toContain(
-        "Every initial or resumed `browser-agent` call must set `outputSchema`"
-      );
-      expect(selected?.content).toContain(
-        '"required": ["status", "message", "images"]'
+        "tool supplies the required structured completion schema"
       );
       expect(selected?.content).toContain(
         "native `final_output` tool exactly once"

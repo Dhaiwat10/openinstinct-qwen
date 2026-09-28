@@ -102,20 +102,19 @@ export default tasks.flatMap((task) =>
         const workerCompletion = readTaskCompletion(child.events);
         const taskJudgeContext =
           "judgeContext" in task ? task.judgeContext : undefined;
-        t.judge.autoevals
-          .closedQA(
-            taskCompletionCriteria(task.successCriteria, taskJudgeContext),
-            {
-              on: [
-                `User task:\n${task.prompt}`,
-                `Benchmark fixture context:\n${browserBenchmarkFixtureContext}`,
-                ...(taskJudgeContext
-                  ? [`Task-specific judge context:\n${taskJudgeContext}`]
-                  : []),
-                `Worker result:\n${workerCompletion?.message ?? "No worker result"}`,
-              ].join("\n\n"),
-            }
-          )
+        t.judge(
+          taskCompletionCriteria(task.successCriteria, taskJudgeContext),
+          {
+            on: [
+              `User task:\n${task.prompt}`,
+              `Benchmark fixture context:\n${browserBenchmarkFixtureContext}`,
+              ...(taskJudgeContext
+                ? [`Task-specific judge context:\n${taskJudgeContext}`]
+                : []),
+              `Worker result:\n${workerCompletion?.message ?? "No worker result"}`,
+            ].join("\n\n"),
+          }
+        )
           .label("task completed")
           .gate(0.8);
       },
@@ -200,7 +199,7 @@ async function requireWorkerSessionId(
     }
   }
 
-  const startIndex = requireStreamIndex(context);
+  const startIndex = requireStreamIndex(turn.session);
   const response = await context.target.fetch(
     `/eve/v1/session/${encodeURIComponent(turn.sessionId)}/stream?startIndex=${String(startIndex)}`,
     { signal: context.signal }

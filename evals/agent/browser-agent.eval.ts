@@ -14,14 +14,16 @@ export default defineEval({
     );
     delegated.expectOk();
     delegated.succeeded();
-    delegated.calledSubagent("browser-agent", {
+    delegated.calledTool("run_browser", {
       status: "completed",
       count: 1,
     });
     const acknowledgement = await requireDeliveredText(t, delegated);
     assertPlainTextDelivery(t, acknowledgement);
 
-    const cancelled = await t.send("Cancel that browser task now.");
+    const cancelled = await delegated.session.send(
+      "Cancel that browser task now."
+    );
     cancelled.expectOk();
     cancelled.succeeded();
     cancelled.calledTool("task_cancel", {

@@ -248,8 +248,7 @@ function summarizeTaskResult(result: EveEvalResult, name: string) {
     return counts;
   }, {});
   const judge = result.assertions.find(
-    (assertion) =>
-      assertion.name === "judge.autoevals.closedQA [task completed]"
+    (assertion) => assertion.name === "judge.boolean [task completed]"
   );
   const rationale = z.string().safeParse(judge?.metadata?.rationale);
 

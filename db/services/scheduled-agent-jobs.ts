@@ -12,7 +12,8 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { inputRequestSchema, type InputRequest } from "eve/client";
+import { isInputRequest, type InputRequest } from "eve/client";
+import { z } from "zod";
 import type { AccessScope } from "@shared/identity/access-scope";
 import {
   computeNextRun,
@@ -25,6 +26,10 @@ import {
   type ScheduledRunOutcome,
 } from "@shared/schedules/outcome";
 import { db, scheduledAgentJobs, scheduledAgentRuns } from "@db";
+
+const pendingInputRequestsSchema = z
+  .array(z.custom<InputRequest>(isInputRequest))
+  .min(1);
 
 const exhaustedRunOutcome = {
   kind: "blocked",
@@ -55,7 +60,7 @@ function parseRun<T extends typeof scheduledAgentRuns.$inferSelect>(run: T) {
   return {
     ...run,
     pendingInputRequests: run.pendingInputRequests
-      ? inputRequestSchema.array().min(1).parse(run.pendingInputRequests)
+      ? pendingInputRequestsSchema.parse(run.pendingInputRequests)
       : null,
     outcome: run.outcome ? scheduledRunOutcomeSchema.parse(run.outcome) : null,
   };
@@ -374,10 +379,7 @@ export async function waitForScheduledAgentRunInput(
   pendingInputRequests: readonly InputRequest[],
   now = new Date()
 ) {
-  const parsedRequests = inputRequestSchema
-    .array()
-    .min(1)
-    .parse(pendingInputRequests);
+  const parsedRequests = pendingInputRequestsSchema.parse(pendingInputRequests);
   const [run] = await db
     .update(scheduledAgentRuns)
     .set({
