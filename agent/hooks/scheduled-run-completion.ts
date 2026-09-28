@@ -1,4 +1,5 @@
 import { defineHook } from "eve/hooks";
+import { browserTaskReceiptSchema } from "@agent/lib/browser-task";
 import { scheduledRunIdentity } from "@agent/lib/schedules/identity";
 import { scheduledRunOutcomeSchema } from "@shared/schedules/outcome";
 import {
@@ -61,8 +62,10 @@ export default defineHook({
         sessionId: ctx.session.id,
       });
     },
-    async "subagent.completed"(event, ctx) {
-      if (!event.data.backgroundTask) return;
+    async "action.result"(event, ctx) {
+      if (event.data.status !== "completed") return;
+      const task = browserTaskReceiptSchema.safeParse(event.data.result);
+      if (!task.success) return;
       const identity = scheduledRunIdentity(ctx.session.auth);
       if (!identity) return;
       const deferred = await deferScheduledAgentRunCompletion(
@@ -75,7 +78,7 @@ export default defineHook({
         deferred,
         runId: identity.runId,
         sessionId: ctx.session.id,
-        taskId: event.data.backgroundTask.taskId,
+        taskId: task.data.output.taskId,
         turnId: ctx.session.turn.id,
       });
     },
