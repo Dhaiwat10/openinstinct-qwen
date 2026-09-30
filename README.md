@@ -182,6 +182,40 @@ Gotchas:
 - Sending email and creating confirmed calendar events always require approval.
   Calendar events with attendees send Google invitations.
 
+## Link wallet
+
+The root agent mounts `@stripe/link-integrations-eve` in
+`agent/extensions/link.ts`. It uses Stripe's bundled wallet tools, skills, and
+approval policies, with per-user authorization through the existing Better Auth
+account. It does not use a shared wallet token.
+
+To enable it, register a Link OAuth client and configure `LINK_CLIENT_ID`,
+`LINK_CLIENT_SECRET`, and `STRIPE_PUBLISHABLE_KEY` on the server. Register the
+exact redirect URI `https://<your-app-host>/api/auth/callback/link` with Stripe,
+including a separate localhost URI when developing locally. Set
+`BETTER_AUTH_URL` to the canonical application origin. These values are optional
+for installations that do not use Link.
+
+Apply the database migration with `pnpm db:migrate` before enabling Link. It
+enforces one Link wallet per OpenInstinct account. Disconnect the current wallet
+before connecting a different one; reconnecting the same wallet refreshes its
+grant.
+
+Users connect or disconnect their wallet from **Link wallet** in the sidebar.
+An agent request that needs a wallet opens the same connection flow and resumes
+through Eve's authorization callback. Connection attempts expire after ten
+minutes and belong to the signed-in user. Better Auth stores encrypted grants
+and refreshes tokens; disconnection revokes the Link grant before removing it.
+Phone sign-in continues to work after disconnecting a wallet.
+
+Wallet access is available in interactive conversations, not scheduled workers
+or scheduled result delivery. The extension's default Eve approval for creating
+spend requests remains enabled, separately from approval in Link. Its tools can
+return payment credentials into stored Eve tool results; the bundled skills
+instruct the agent not to repeat them in chat. Financial-data tools also require
+the corresponding Link grant scopes; the default grant requests
+`payment_methods.agentic` and `userinfo:read`.
+
 ## Local development
 
 The **Deploy with Vercel** flow above is the simplest way to run OpenInstinct. It

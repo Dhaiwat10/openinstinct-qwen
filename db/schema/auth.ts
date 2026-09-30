@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -80,6 +80,9 @@ export const account = pgTable(
       table.accountId
     ),
     index("account_userId_idx").on(table.userId),
+    uniqueIndex("account_link_userId_uidx")
+      .on(table.userId)
+      .where(sql`${table.providerId} = 'link'`),
   ]
 );
 
