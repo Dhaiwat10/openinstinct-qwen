@@ -15,6 +15,7 @@ afterEach(() => {
 });
 
 describe("Link wallet integration", () => {
+  // Include PGlite startup and the full OAuth lifecycle on slower CI runners.
   it("connects an existing phone user, isolates callbacks, refreshes encrypted tokens, and revokes on disconnect", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
@@ -295,7 +296,7 @@ describe("Link wallet integration", () => {
     } finally {
       await client.close();
     }
-  });
+  }, 15_000);
 });
 
 function updateCookies(headers: Headers, response: Headers) {
