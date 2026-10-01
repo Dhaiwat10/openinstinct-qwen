@@ -81,20 +81,19 @@ export function ActivityCard({
               </div>
               <div>
                 {sessions.map((session) => {
-                  const status =
-                    statuses.get(session.childSessionId) ?? "starting";
+                  const status = statuses.get(session.sessionId) ?? "starting";
                   const task =
                     getSubagentTask(
-                      eventsBySession.get(session.childSessionId) ?? []
+                      eventsBySession.get(session.sessionId) ?? []
                     ) ?? session.task;
                   return (
                     <Button
                       aria-label={`${agentLabel(session.name)} task, ${status}`}
                       className="rounded-lg p-3"
-                      data-task-session={session.childSessionId}
-                      key={session.childSessionId}
+                      data-task-session={session.sessionId}
+                      key={session.sessionId}
                       onClick={() => {
-                        onSelect(session.childSessionId);
+                        onSelect(session.sessionId);
                       }}
                       type="button"
                       variant="surface"

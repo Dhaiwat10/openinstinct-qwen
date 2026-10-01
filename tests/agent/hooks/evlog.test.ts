@@ -104,6 +104,9 @@ function hookContext(turnId: string, sequence: number) {
   return {
     agent: { name: "root" },
     channel: { kind: "linq" },
+    cancel() {
+      throw new Error("Unexpected cancellation in fixture.");
+    },
     async getSandbox() {
       throw new Error("Sandbox access is outside this focused test.");
     },

@@ -50,7 +50,11 @@ export function backgroundWorkerDeliveryMessageIds(
     }
 
     if (event.type !== "message.received") continue;
-    if (event.data.kind === "execution.background_task") {
+    if (
+      z
+        .object({ kind: z.literal("execution.background_task") })
+        .safeParse(event.data).success
+    ) {
       messageIds.add(`${event.data.turnId}:user`);
       continue;
     }
@@ -75,11 +79,10 @@ function workerTaskIds(events: readonly MessageStreamEvent[]) {
 
   for (const event of events) {
     if (
-      event.type === "subagent.completed" &&
-      event.data.subagentName === "browser-agent" &&
-      event.data.backgroundTask !== undefined
+      event.type === "task.started" &&
+      ["run_browser", "browser-agent"].includes(event.data.name)
     ) {
-      taskIds.add(event.data.backgroundTask.taskId);
+      taskIds.add(event.data.taskId);
       continue;
     }
 
@@ -88,9 +91,12 @@ function workerTaskIds(events: readonly MessageStreamEvent[]) {
       event.data.result.kind === "subagent-result" &&
       event.data.result.subagentName === "browser-agent" &&
       event.data.result.origin === "child" &&
-      event.data.result.backgroundTask !== undefined
+      "backgroundTask" in event.data.result
     ) {
-      taskIds.add(event.data.result.backgroundTask.taskId);
+      const receipt = z
+        .object({ backgroundTask: z.object({ taskId: z.string() }) })
+        .safeParse(event.data.result);
+      if (receipt.success) taskIds.add(receipt.data.backgroundTask.taskId);
     }
   }
 

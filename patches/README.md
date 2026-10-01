@@ -1,32 +1,29 @@
 # Dependency compatibility patches
 
-Eve is pinned to the published `0.67.2` release.
+Eve is pinned to the published `0.69.0` release.
 
 `@linqapp__chat-sdk-adapter@0.5.1.patch` adds the native reply option to
 the separately installed adapter while preserving attachments and idempotency.
 The application delivery tests exercise that adapter.
 
-`eve@0.67.2.patch` preserves native Linq replies and restores task cancellation:
+`eve@0.69.0.patch` preserves native Linq replies. The bundled adapter forwards
+`replyToMessageId` as `reply_to` and uses the installed adapter declarations.
+The provider-request regression lives in
+`tests/agent/channels/linq-bundled-adapter.test.ts`.
 
-- The bundled Linq adapter forwards `replyToMessageId` as `reply_to` and uses
-  the installed adapter declarations. The provider-request regression lives in
-  `tests/agent/channels/linq-bundled-adapter.test.ts`.
-- Eve registers an explicitly restored `task_cancel` as an authored tool. Its
-  runtime only assigns cancellation dispatch to framework-owned tools, leaving
-  the restored tool advertised but without an executor. Recognize the reserved
-  `task_cancel` name in that existing dispatch path, as Eve's built-in-tool docs
-  specify that its framework behavior cannot be overridden. Keep all other
-  authored tools on their existing path.
+Eve 0.69 owns task cancellation for every task, including with `defaultTools:
+false`. The old cancellation patch and authored `task_cancel` declaration are
+removed.
 
 `pnpm test:runtime` exercises the production tool declarations with
-`defaultTools: false`, waits for child work to start, cancels it, and checks the
-child's cancellation event. Remove each patch hunk when an upstream release
+`defaultTools: false`, waits for child work to start, cancels it, checks its abort signal,
+and resumes the same child session. Remove each patch hunk when an upstream release
 passes its corresponding regression without the hunk.
 
 `@stripe__link-integrations-eve@0.2.0.patch` contains the generated output of
-rebuilding Stripe's official extension source with Eve `0.67.2`. The published
-package was built with `0.54.4` and requires tool contract v36, which `0.67.2`
-rejects. The compiler emits tool contract v58 and skill contract v2 when it
+rebuilding Stripe's official extension source with Eve `0.69.0`. The published
+package was built with `0.54.4` and requires tool contract v36, which `0.69.0`
+rejects. The compiler emits tool contract v71 and skill contract v2 when it
 rebuilds this source. The resulting JavaScript and skills are byte-for-byte
 identical to the published package; only generated compatibility metadata and
 declaration ordering differ. This is a compiler rebuild, not a manual override

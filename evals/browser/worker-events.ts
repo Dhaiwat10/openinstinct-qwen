@@ -1,20 +1,8 @@
-import type { MessageStreamEvent } from "eve/client";
-import { z } from "zod";
+import type { MessageStreamEvent, TaskSettledStreamEvent } from "eve/client";
 import { taskCompletionOutputSchema } from "@agent/subagents/browser-agent/lib/completion";
 
-const workerTaskNotificationPrefix =
-  /^Background task (\S+) \(browser-agent\) /u;
-const terminalTaskControlSchema = z.object({
-  tasks: z.array(
-    z.object({
-      status: z.enum(["cancelled", "completed", "failed"]),
-      taskId: z.string(),
-    })
-  ),
-});
-
-interface BackgroundWorkerTaskState {
-  output?: string;
+interface WorkerTaskState {
+  output?: TaskSettledStreamEvent["data"]["output"];
   status?: "cancelled" | "completed" | "failed";
   taskId: string;
   terminalAt?: string;
@@ -26,7 +14,7 @@ export function measureWorkerTask(
 ) {
   const start = events.find((event) => event.type === "message.received")?.meta
     .at;
-  const backgroundTasks = readBackgroundWorkerTasks(events);
+  const backgroundTasks = readWorkerTasks(events);
   const pendingWorker = backgroundTasks.some(
     (task) => task.status === undefined
   );
@@ -88,7 +76,7 @@ export function didCompleteWorker(events: readonly MessageStreamEvent[]) {
 }
 
 export function didFinishWorker(events: readonly MessageStreamEvent[]) {
-  const backgroundTasks = readBackgroundWorkerTasks(events);
+  const backgroundTasks = readWorkerTasks(events);
   if (backgroundTasks.length > 0) {
     return backgroundTasks.every((task) => task.status !== undefined);
   }
@@ -114,7 +102,7 @@ export function terminalWorkerMessage(
 }
 
 export function readTaskCompletion(events: readonly MessageStreamEvent[]) {
-  const backgroundTasks = readBackgroundWorkerTasks(events);
+  const backgroundTasks = readWorkerTasks(events);
   if (backgroundTasks.length > 0) {
     if (backgroundTasks.some((task) => task.status === undefined)) {
       return undefined;
@@ -141,21 +129,6 @@ export function readTaskCompletion(events: readonly MessageStreamEvent[]) {
       continue;
     }
 
-    if (event.type === "subagent.completed") {
-      if (
-        event.data.subagentName === "browser-agent" &&
-        event.data.backgroundTask === undefined
-      ) {
-        const completion = taskCompletionOutputSchema.safeParse(
-          event.data.output
-        );
-        if (completion.success) {
-          return { ...completion.data, completedAt: event.meta.at };
-        }
-      }
-      continue;
-    }
-
     if (event.type !== "action.result" || event.data.status !== "completed") {
       continue;
     }
@@ -164,7 +137,7 @@ export function readTaskCompletion(events: readonly MessageStreamEvent[]) {
     if (result.kind === "subagent-result") {
       if (
         result.subagentName === "browser-agent" &&
-        (result.origin !== "child" || result.backgroundTask === undefined)
+        (result.origin !== "child" || result.outcome.kind !== "parked")
       ) {
         const completion = taskCompletionOutputSchema.safeParse(result.output);
         if (completion.success) {
@@ -178,111 +151,26 @@ export function readTaskCompletion(events: readonly MessageStreamEvent[]) {
   return undefined;
 }
 
-function readWorkerTaskNotification(event: MessageStreamEvent) {
-  if (event.type !== "message.received") return undefined;
-  const match = workerTaskNotificationPrefix.exec(event.data.message);
-  if (!match) return undefined;
-  const [, taskId] = match;
-  if (!taskId) return undefined;
-  const message = event.data.message.slice(match[0].length);
-
-  if (message === "is cancelled.")
-    return { status: "cancelled" as const, taskId };
-
-  const completedPrefix = "is completed.\n\nResult:\n";
-  if (message.startsWith(completedPrefix)) {
-    return {
-      output: message.slice(completedPrefix.length),
-      status: "completed" as const,
-      taskId,
-    };
-  }
-
-  const failedPrefix = "failed.\n\nError:\n";
-  if (message.startsWith(failedPrefix)) {
-    return {
-      output: message.slice(failedPrefix.length),
-      status: "failed" as const,
-      taskId,
-    };
-  }
-
-  return undefined;
-}
-
-function readBackgroundWorkerTasks(events: readonly MessageStreamEvent[]) {
-  const tasks = new Map<string, BackgroundWorkerTaskState>();
-
+function readWorkerTasks(events: readonly MessageStreamEvent[]) {
+  const tasks = new Map<string, WorkerTaskState>();
   for (const event of events) {
-    const receiptTaskId = readBackgroundWorkerReceiptTaskId(event);
-    if (receiptTaskId) {
-      tasks.set(receiptTaskId, {
-        taskId: receiptTaskId,
-      });
-      continue;
-    }
-
-    const notification = readWorkerTaskNotification(event);
-    if (notification) {
-      const task = tasks.get(notification.taskId);
-      if (task) {
-        tasks.set(notification.taskId, {
-          ...task,
-          output: notification.output,
-          status: notification.status,
-          terminalAt: event.meta.at,
-        });
-      }
-      continue;
-    }
-
     if (
-      event.type !== "action.result" ||
-      event.data.status !== "completed" ||
-      event.data.result.kind !== "tool-result" ||
-      event.data.result.toolName !== "task_cancel"
+      event.type === "task.started" &&
+      ["run_browser", "browser-agent"].includes(event.data.name)
     ) {
-      continue;
+      tasks.delete(event.data.callId);
+      tasks.set(event.data.callId, { taskId: event.data.taskId });
     }
-
-    const parsed = terminalTaskControlSchema.safeParse(
-      event.data.result.output
-    );
-    if (!parsed.success) continue;
-    for (const result of parsed.data.tasks) {
-      const task = tasks.get(result.taskId);
-      if (!task) continue;
-      tasks.set(result.taskId, {
-        ...task,
-        status: result.status,
+    if (event.type === "task.settled" && tasks.has(event.data.callId)) {
+      tasks.set(event.data.callId, {
+        taskId: event.data.taskId,
+        output: event.data.output,
+        status: event.data.status,
         terminalAt: event.meta.at,
       });
     }
   }
-
   return [...tasks.values()];
-}
-
-function readBackgroundWorkerReceiptTaskId(event: MessageStreamEvent) {
-  if (
-    event.type === "subagent.completed" &&
-    event.data.subagentName === "browser-agent" &&
-    event.data.backgroundTask !== undefined
-  ) {
-    return event.data.backgroundTask.taskId;
-  }
-
-  if (
-    event.type === "action.result" &&
-    event.data.result.kind === "subagent-result" &&
-    event.data.result.subagentName === "browser-agent" &&
-    event.data.result.origin === "child" &&
-    event.data.result.backgroundTask !== undefined
-  ) {
-    return event.data.result.backgroundTask.taskId;
-  }
-
-  return undefined;
 }
 
 function elapsedMs(start: string, end: string) {

@@ -69,7 +69,7 @@ export function traceTimelineRows(event: HookEvent): TraceTimelineRow[] {
       ];
     }
     case "message.completed":
-      return [row("Assistant", event.data.message ?? "")];
+      return [row("Assistant", event.data.message)];
     case "result.completed":
       return [row("Final output", compactJson(event.data.result))];
     case "input.requested":

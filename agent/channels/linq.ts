@@ -68,6 +68,14 @@ export default linqChannel({
   credentials,
   events: {
     async "action.result"(event, context, session) {
+      if (
+        event.status === "completed" &&
+        event.result.kind === "tool-result" &&
+        event.result.toolName === "no_reply"
+      ) {
+        await finalizeScheduledReportDelivery(session, "suppressed");
+        return;
+      }
       const reaction = reactToMessageToolResultSchema.safeParse(event.result);
       if (event.status === "completed" && reaction.success) {
         if (!context.thread) {

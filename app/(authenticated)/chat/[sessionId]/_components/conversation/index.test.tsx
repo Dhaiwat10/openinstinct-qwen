@@ -121,13 +121,14 @@ function message(id: string, text: string): EveMessage {
 function workerReceipt(taskId: string): MessageStreamEvent {
   return {
     data: {
-      backgroundTask: { status: "working", taskId },
+      taskId,
       callId: "call_worker",
-      output: `{"status":"working","taskId":"${taskId}"}`,
-      subagentName: "browser-agent",
+      turnId: "turn_worker",
+      name: "run_browser",
+      kind: "tool",
     },
     meta: { at: "2026-08-27T20:00:00.000Z", id: "receipt" },
-    type: "subagent.completed",
+    type: "task.started",
   };
 }
 

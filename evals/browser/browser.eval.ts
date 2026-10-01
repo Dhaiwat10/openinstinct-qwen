@@ -37,9 +37,9 @@ export default tasks.flatMap((task) =>
       async test(t) {
         const started = await t.send(task.prompt);
         started.expectOk();
-        started.calledSubagent("browser-agent", { count: 1 });
-        const childSessionId = await requireWorkerSessionId(t, started);
-        let child = t.target.watchTurn(childSessionId, { startIndex: 0 });
+        started.calledTool("run_browser", { count: 1 });
+        const sessionId = await requireWorkerSessionId(t, started);
+        let child = t.target.watchTurn(sessionId, { startIndex: 0 });
         let turnStartIndex = 0;
         let completed: EveEvalTurn | null = null;
         const workerEvents: EveEvalTurn["events"][number][] = [];
@@ -50,7 +50,7 @@ export default tasks.flatMap((task) =>
             const turn = await resultWithLiveActivity(
               child,
               description,
-              childSessionId,
+              sessionId,
               workerEvents,
               (milliseconds) => t.sleep(milliseconds)
             );
@@ -65,7 +65,7 @@ export default tasks.flatMap((task) =>
             if (!isIdleStreamClosure(error)) throw error;
           }
           if (completed === null) {
-            child = t.target.watchTurn(childSessionId, {
+            child = t.target.watchTurn(sessionId, {
               startIndex: turnStartIndex,
             });
           }
@@ -180,10 +180,10 @@ function isIdleStreamClosure(cause: unknown) {
 
 const workerCalledSchema = z.object({
   data: z.object({
-    childSessionId: z.string(),
+    sessionId: z.string(),
     name: z.literal("browser-agent"),
   }),
-  type: z.literal("subagent.called"),
+  type: z.literal("agent.started"),
 });
 
 async function requireWorkerSessionId(
@@ -191,11 +191,8 @@ async function requireWorkerSessionId(
   turn: EveEvalTurn
 ) {
   for (const event of turn.events) {
-    if (
-      event.type === "subagent.called" &&
-      event.data.name === "browser-agent"
-    ) {
-      return event.data.childSessionId;
+    if (event.type === "agent.started" && event.data.name === "browser-agent") {
+      return event.data.sessionId;
     }
   }
 
@@ -229,7 +226,7 @@ async function requireWorkerSessionId(
           continue;
         }
         const parsed = workerCalledSchema.safeParse(value);
-        if (parsed.success) return parsed.data.data.childSessionId;
+        if (parsed.success) return parsed.data.data.sessionId;
       }
       if (chunk.done) break;
     }

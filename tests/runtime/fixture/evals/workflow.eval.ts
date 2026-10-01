@@ -1,10 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { defineEval, type EveEvalContext, type EveEvalTurn } from "eve/evals";
+import { defineEval, type EveEvalContext } from "eve/evals";
 import { equals } from "eve/evals/expect";
 import type { MessageStreamEvent } from "eve/client";
-import { browserTaskReceiptSchema } from "@agent/lib/browser-task";
 import { taskCompletionOutputSchema } from "@agent/subagents/browser-agent/lib/completion";
 
 async function waitForToolMarker(
@@ -13,48 +12,29 @@ async function waitForToolMarker(
   signal: AbortSignal
 ) {
   const deadline = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
-  // The tool executes in Eve's worker process; its marker proves entry or abort observation.
   while (!existsSync(join(".eve", "fixture-tool", sessionId, marker))) {
-    // oxlint-disable-next-line eslint/no-await-in-loop -- bounded observation of a marker written by the runtime worker.
+    // oxlint-disable-next-line eslint/no-await-in-loop -- bounded observation of the runtime worker's cancellation marker.
     await setTimeout(10, undefined, { signal: deadline });
   }
 }
 
-async function followUntil(
-  t: EveEvalContext,
-  initial: EveEvalTurn,
-  predicate: (event: MessageStreamEvent) => boolean
-) {
-  let turn = initial;
-  const events = [...turn.events];
-  // Each iteration continues at the cursor of the preceding settled turn.
-  /* oxlint-disable eslint/no-await-in-loop */
-  for (let attempt = 0; attempt < 8 && !events.some(predicate); attempt += 1) {
-    turn = await t.target
-      .watchTurn(turn.sessionId, { startIndex: turn.session.state.streamIndex })
-      .result();
-    turn.expectOk();
-    events.push(...turn.events);
-  }
-  /* oxlint-enable eslint/no-await-in-loop */
-  if (!events.some(predicate))
-    throw new Error("Expected lifecycle event was not observed.");
-  return { turn, events };
-}
-
 function calledAgent(events: readonly MessageStreamEvent[]) {
-  const called = events.find((event) => event.type === "subagent.called");
-  if (!called?.data.agentId)
-    throw new Error("No child invocation was recorded.");
-  return called.data;
+  const opened = events.find((event) => event.type === "agent.started");
+  if (!opened) throw new Error("No child session was recorded.");
+  return opened;
 }
-
 function checkCompletion(
   t: EveEvalContext,
   events: readonly MessageStreamEvent[]
 ) {
-  const completed = events.find((event) => event.type === "subagent.completed");
-  if (!completed) throw new Error("No child completion was recorded.");
+  const completed = events.findLast(
+    (event) =>
+      event.type === "task.settled" &&
+      event.data.name === "run_browser" &&
+      event.data.status === "completed"
+  );
+  if (completed?.type !== "task.settled")
+    throw new Error("No browser task completion was recorded.");
   t.check(
     taskCompletionOutputSchema.parse(completed.data.output),
     equals({
@@ -68,119 +48,73 @@ function checkCompletion(
 export default [
   defineEval({
     description:
-      "Completes background browser work and resumes the same structured worker",
+      "Completes browser work and resumes the same structured worker task",
     async test(t) {
       const first = await t.send("Start");
       first.expectOk();
-      first.requireToolCall("run_browser", {
-        status: "completed",
-      });
-      const admission = first.events.find(
-        (candidate) =>
-          candidate.type === "action.result" &&
-          candidate.data.result.kind === "tool-result" &&
-          candidate.data.result.toolName === "run_browser"
+      checkCompletion(t, first.events);
+      const opened = calledAgent(first.events);
+      if (!opened.data.taskId)
+        throw new Error("Browser task identity missing.");
+      const continued = await first.session.send(
+        `Resume:${opened.data.taskId}`
       );
-      if (admission?.type !== "action.result")
-        throw new Error("Browser admission event is missing.");
-      const parsed = browserTaskReceiptSchema.parse(admission.data.result);
-      t.check(parsed.output.status, equals("working"));
-      const initial = await followUntil(
-        t,
-        first,
-        (event) => event.type === "subagent.completed"
-      );
-      const called = calledAgent(initial.events);
-      checkCompletion(t, initial.events);
-      const resumed = await initial.turn.session.send(
-        `Resume:${String(called.agentId)}`
-      );
-      resumed.expectOk();
-      const continued = await followUntil(
-        t,
-        resumed,
-        (event) => event.type === "subagent.completed"
-      );
-      const next = calledAgent(continued.events);
-      t.check(next.agentId, equals(called.agentId));
-      t.check(next.childSessionId, equals(called.childSessionId));
+      continued.expectOk();
       checkCompletion(t, continued.events);
+      const resumed = continued.events.find(
+        (event) =>
+          event.type === "task.started" && event.data.name === "run_browser"
+      );
+      if (resumed?.type !== "task.started")
+        throw new Error("Task continuation missing.");
+      t.check(resumed.data.taskId, equals(opened.data.taskId));
+      t.check(
+        continued.events.some((event) => event.type === "agent.started"),
+        equals(false)
+      );
     },
   }),
   defineEval({
-    description: "Cancels admitted browser work while a child tool is running",
+    description: "Cancels running browser work and reuses its worker session",
     async test(t) {
-      const first = await t.send("Wait");
-      first.expectOk();
-      first.requireToolCall("run_browser", {
-        status: "completed",
+      const session = await t.session();
+      const activity = await session.start("Wait");
+      const opened = await activity.waitForEvent("agent.started");
+      t.log("Opened browser session");
+      if (!opened.data.taskId)
+        throw new Error("Browser task identity missing.");
+      await waitForToolMarker(opened.data.sessionId, "started", t.signal);
+      t.log("Browser tool running");
+      const cancelled = await session.send(`Cancel:${opened.data.taskId}`, {
+        turnPolicy: "steer",
       });
-      const admission = first.events.find(
-        (candidate) =>
-          candidate.type === "action.result" &&
-          candidate.data.result.kind === "tool-result" &&
-          candidate.data.result.toolName === "run_browser"
-      );
-      if (admission?.type !== "action.result")
-        throw new Error("Browser admission event is missing.");
-      const parsed = browserTaskReceiptSchema.parse(admission.data.result);
-      const activity = t.target.watchTurn(first.sessionId, {
-        startIndex: first.session.state.streamIndex,
-      });
-      const called =
-        first.events.find((event) => event.type === "subagent.called") ??
-        (await activity.waitForEvent("subagent.called"));
-      let toolStarted = false;
-      for await (const event of first.session.streamSubagent(called, {
-        signal: t.signal,
-      })) {
-        if (
-          event.type === "actions.requested" &&
-          event.data.actions.some(
-            (action) =>
-              action.kind === "tool-call" &&
-              action.toolName === "wait_for_cancellation"
-          )
-        ) {
-          toolStarted = true;
-          break;
-        }
-      }
-      t.check(toolStarted, equals(true));
-      await waitForToolMarker(called.data.childSessionId, "started", t.signal);
-      const cancelled = await first.session.send(
-        `Cancel:${parsed.output.taskId}`
-      );
+      t.log("Cancellation turn settled");
       cancelled.expectOk();
-
-      await activity.result();
+      const first = await activity.result();
+      t.log("Initial turn settled");
+      first.expectOk();
       cancelled.calledTool("task_cancel", { status: "completed", count: 1 });
-      let childCancelled = false;
-      for await (const event of first.session.streamSubagent(called, {
-        signal: t.signal,
-      })) {
-        if (event.type === "turn.cancelled") {
-          childCancelled = true;
-        }
-        if (event.type === "session.waiting" && childCancelled) break;
-        if (event.type === "result.completed")
-          throw new Error("Cancelled worker produced a successful result.");
-      }
-      t.check(childCancelled, equals(true));
-      await waitForToolMarker(called.data.childSessionId, "aborted", t.signal);
+      await waitForToolMarker(opened.data.sessionId, "aborted", t.signal);
+      const settlements = [...first.events, ...cancelled.events].filter(
+        (event) => event.type === "task.settled"
+      );
+      t.check(
+        settlements.some(
+          (event) =>
+            event.data.taskId === opened.data.taskId &&
+            event.data.status === "cancelled"
+        ),
+        equals(true)
+      );
       const resumed = await cancelled.session.send(
-        `Resume:${String(called.data.agentId)}`
+        `Resume:${opened.data.taskId}`
       );
       resumed.expectOk();
-      const continued = await followUntil(
-        t,
-        resumed,
-        (event) => event.type === "subagent.completed"
+      checkCompletion(t, resumed.events);
+      t.check(
+        resumed.events.some((event) => event.type === "agent.started"),
+        equals(false)
       );
-      const next = calledAgent(continued.events);
-      t.check(next.agentId, equals(called.data.agentId));
-      t.check(next.childSessionId, equals(called.data.childSessionId));
-      checkCompletion(t, continued.events);
     },
   }),
 ];

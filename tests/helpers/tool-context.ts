@@ -24,6 +24,7 @@ export function toolContextFor({
       }
     : undefined;
   return {
+    messages: [],
     abortSignal,
     callId,
     async getSandbox() {

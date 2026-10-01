@@ -3,7 +3,7 @@
 import {
   defaultMessageReducer,
   type MessageStreamEvent,
-  type SubagentCalledStreamEvent,
+  type AgentStartedStreamEvent,
 } from "eve/client";
 import { BotIcon, LoaderCircleIcon } from "lucide-react";
 import { useMemo } from "react";
@@ -40,7 +40,7 @@ export function SubagentTrace({
   readonly loadOlder: () => Promise<void>;
   readonly streamError?: string;
   readonly status: SubagentStatus;
-  readonly target: SubagentCalledStreamEvent["data"];
+  readonly target: AgentStartedStreamEvent["data"];
 }) {
   const data = useMemo(
     () =>

@@ -1,5 +1,5 @@
 diff --git a/dist/extension/_manifest.json b/dist/extension/_manifest.json
-index 4e60baa523aaa33c5dcec48e92d0912acbcb4862..a3612ee339ec169338e2efe50b03d9840e42c31f 100644
+index 4e60baa523aaa33c5dcec48e92d0912acbcb4862..eb58067f292c66828a3630806e4e013ce6a6a959 100644
 --- a/dist/extension/_manifest.json
 +++ b/dist/extension/_manifest.json
 @@ -1,11 +1,11 @@
@@ -7,12 +7,12 @@ index 4e60baa523aaa33c5dcec48e92d0912acbcb4862..a3612ee339ec169338e2efe50b03d984
    "kind": "eve-extension",
    "formatVersion": 2,
 -  "builtWithEve": "0.54.4",
-+  "builtWithEve": "0.67.2",
++  "builtWithEve": "0.69.0",
    "requires": {
      "extension": 1,
 -    "tool": 36,
 -    "skill": 1,
-+    "tool": 58,
++    "tool": 71,
 +    "skill": 2,
      "instructions": 2,
      "config": 1

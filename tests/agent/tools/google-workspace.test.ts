@@ -35,6 +35,7 @@ describe("Google Workspace tools", () => {
 
 function toolContext() {
   return {
+    messages: [],
     abortSignal: new AbortController().signal,
     callId: "call-1",
     async getSandbox() {
