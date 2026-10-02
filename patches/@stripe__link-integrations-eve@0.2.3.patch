@@ -1,22 +1,20 @@
 diff --git a/dist/extension/_manifest.json b/dist/extension/_manifest.json
-index 4e60baa523aaa33c5dcec48e92d0912acbcb4862..eb58067f292c66828a3630806e4e013ce6a6a959 100644
+index 12ec14b955e28790e97eb648c10265d0b06690de..eb58067f292c66828a3630806e4e013ce6a6a959 100644
 --- a/dist/extension/_manifest.json
 +++ b/dist/extension/_manifest.json
-@@ -1,11 +1,11 @@
+@@ -1,10 +1,10 @@
  {
    "kind": "eve-extension",
    "formatVersion": 2,
--  "builtWithEve": "0.54.4",
+-  "builtWithEve": "0.66.1",
 +  "builtWithEve": "0.69.0",
    "requires": {
      "extension": 1,
--    "tool": 36,
--    "skill": 1,
+-    "tool": 57,
 +    "tool": 71,
-+    "skill": 2,
+     "skill": 2,
      "instructions": 2,
      "config": 1
-   }
 diff --git a/dist/extension/tools/create_report.d.ts b/dist/extension/tools/create_report.d.ts
 index 7e6278969032611d5b7b96337734b168a88a26e3..ebc4aa864d2eb7ac0c57d08d1acc2caa94b8b111 100644
 --- a/dist/extension/tools/create_report.d.ts
