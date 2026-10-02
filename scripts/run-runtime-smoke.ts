@@ -18,6 +18,10 @@ try {
     join(root, "agent/tools/run_browser.ts"),
     join(fixture, "agent/tools/run_browser.ts")
   );
+  await cp(
+    join(root, "agent/tools/task_cancel.ts"),
+    join(fixture, "agent/tools/task_cancel.ts")
+  );
   await symlink(
     join(root, "node_modules"),
     join(fixture, "node_modules"),

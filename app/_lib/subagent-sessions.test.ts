@@ -9,14 +9,17 @@ import {
 
 const meta = { at: "2026-08-27T12:00:00.000Z", id: "evt_01" };
 const called = {
-  type: "agent.started",
+  type: "subagent.called",
   data: {
     callId: "call_1",
-    sessionId: "child_1",
-    taskId: "task_1",
-    streamPath: "/eve/v1/session/child_1/stream",
+    childSessionId: "child_1",
+    childStreamPath: "/eve/v1/session/child_1/stream",
     name: "researcher",
+    sequence: 0,
+    sessionId: "parent_1",
+    toolName: "researcher",
     turnId: "turn_1",
+    workflowId: "workflow_1",
   },
   meta,
 } satisfies MessageStreamEvent;
@@ -26,25 +29,16 @@ describe("collectSubagentSessions", () => {
     const events = [
       called,
       {
-        type: "task.started",
-        data: {
-          callId: "call_2",
-          taskId: "task_1",
-          turnId: "turn_2",
-          name: "run_browser",
-          kind: "tool",
-        },
+        ...called,
+        data: { ...called.data, callId: "call_2" },
         meta: { ...meta, id: "evt_02" },
       },
       {
-        type: "task.settled",
+        type: "subagent.completed",
         data: {
           callId: "call_2",
           output: "Done",
-          name: "researcher",
-          taskId: "task_1",
-          turnId: "turn_1",
-          status: "completed",
+          subagentName: "researcher",
         },
         meta: { ...meta, id: "evt_03" },
       },
@@ -65,14 +59,16 @@ describe("collectSubagentSessions", () => {
         data: {
           ...called.data,
           callId: "call_2",
-          sessionId: "child_2",
+          childSessionId: "child_2",
         },
         meta: { ...meta, id: "evt_02" },
       },
     ] satisfies readonly MessageStreamEvent[];
 
     expect(
-      collectSubagentSessions(events).map(({ sessionId }) => sessionId)
+      collectSubagentSessions(events).map(
+        ({ childSessionId }) => childSessionId
+      )
     ).toEqual(["child_2", "child_1"]);
   });
 
@@ -81,7 +77,6 @@ describe("collectSubagentSessions", () => {
       {
         type: "actions.requested",
         data: {
-          sequence: 0,
           actions: [
             {
               callId: "call_1",
@@ -93,6 +88,7 @@ describe("collectSubagentSessions", () => {
               subagentName: "researcher",
             },
           ],
+          sequence: 0,
           stepIndex: 0,
           turnId: "turn_1",
         },
@@ -110,7 +106,7 @@ describe("collectSubagentSessions", () => {
       data: {
         ...called.data,
         callId: "call_2",
-        sessionId: "child_2",
+        childSessionId: "child_2",
       },
       meta: { ...meta, id: "evt_02" },
     } satisfies MessageStreamEvent;
@@ -122,7 +118,7 @@ describe("collectSubagentSessions", () => {
 
     expect(
       collectSubagentSessions([called, secondChild, continuedFirstChild]).map(
-        ({ sessionId }) => sessionId
+        ({ childSessionId }) => childSessionId
       )
     ).toEqual(["child_1", "child_2"]);
   });
@@ -151,7 +147,19 @@ describe("getSubagentSubscriptionKey", () => {
 
 describe("getSubagentStatus", () => {
   it("uses the child stream instead of a background receipt", () => {
-    const [session] = collectSubagentSessions([called]);
+    const [session] = collectSubagentSessions([
+      called,
+      {
+        type: "subagent.completed",
+        data: {
+          backgroundTask: { status: "working", taskId: "task_1" },
+          callId: "call_1",
+          output: "Continuing in the background",
+          subagentName: "researcher",
+        },
+        meta: { ...meta, id: "evt_02" },
+      },
+    ]);
 
     if (!session) throw new Error("Expected a collected subagent session");
 
@@ -183,9 +191,9 @@ describe("getSubagentStatus", () => {
           ? {
               type,
               data: {
-                sequence: 0,
                 code: "failed",
                 message: "Failed",
+                sequence: 0,
                 turnId: "turn_1",
               },
               meta: { ...meta, id: "evt_02" },
@@ -218,8 +226,8 @@ describe("getSubagentTask", () => {
       {
         type: "message.received",
         data: {
-          sequence: 0,
           message: "Task: First task\n\nFull assignment",
+          sequence: 0,
           turnId: "turn_1",
         },
         meta,

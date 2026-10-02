@@ -190,7 +190,6 @@ function toolContext() {
     async getSandbox() {
       throw new Error("Sandbox access is outside this focused test.");
     },
-    messages: [],
     abortSignal: new AbortController().signal,
     callId: "call-1",
     getToken,

@@ -45,7 +45,7 @@ export function browserBenchmarkActivity(
       if (message) return message;
     }
     if (event.type === "message.completed") {
-      const message = activityLine(event.data.message);
+      const message = activityLine(event.data.message ?? "");
       if (message) return message;
     }
     if (event.type === "actions.requested") {

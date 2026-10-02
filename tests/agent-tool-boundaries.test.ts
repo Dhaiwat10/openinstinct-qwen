@@ -26,9 +26,9 @@ describe("root and worker capability boundaries", () => {
       "contacts.ts",
       "gmail.ts",
       "messaging.ts",
-      "no_reply.ts",
       "run_browser.ts",
       "schedules.ts",
+      "task_cancel.ts",
       "vault.ts",
       "web_fetch.ts",
       "web_search.ts",
@@ -179,7 +179,7 @@ describe("root and worker capability boundaries", () => {
       "tool supplies the required structured completion schema"
     );
     expect(workerCoordination).toContain(
-      "including when passing an existing `taskId`"
+      "including when passing an existing `agentId`"
     );
     expect(workerCoordination).toContain(
       "calling Eve's native `final_output` tool exactly once"

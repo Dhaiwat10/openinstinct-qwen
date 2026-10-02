@@ -82,12 +82,14 @@ export function SubagentPanel({
     };
   }, [selectedId]);
 
-  const selected = sessions.find((session) => session.sessionId === selectedId);
+  const selected = sessions.find(
+    (session) => session.childSessionId === selectedId
+  );
   const statuses = useMemo(
     () =>
       new Map(
         sessions.map((session) => [
-          session.sessionId,
+          session.childSessionId,
           getSubagentStatus([], session),
         ])
       ),
@@ -170,7 +172,7 @@ export function SubagentPanel({
           {selected ? (
             <TracePreview
               closeButtonRef={traceCloseButton}
-              key={selected.sessionId}
+              key={selected.childSessionId}
               onClose={closeTask}
               session={selected}
             />
@@ -201,7 +203,7 @@ export function SubagentPanel({
           </SheetHeader>
           {selected ? (
             <TracePreview
-              key={selected.sessionId}
+              key={selected.childSessionId}
               onClose={closeTask}
               session={selected}
             />

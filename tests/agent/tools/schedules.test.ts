@@ -349,7 +349,6 @@ function toolContext(
   conversationChannel: "eve" | "linq" = "linq"
 ) {
   return {
-    messages: [],
     abortSignal: new AbortController().signal,
     callId: "call-schedule",
     async getSandbox() {

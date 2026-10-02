@@ -259,32 +259,6 @@ describe("Linq message delivery", () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it("suppresses no_reply scheduled reports without posting a message", async () => {
-    const { context, post } = handlerContext(null);
-    await handleActionResult(
-      {
-        result: {
-          callId: "call-no-reply",
-          kind: "tool-result",
-          toolName: "no_reply",
-          output: null,
-        },
-        sequence: 0,
-        status: "completed",
-        stepIndex: 0,
-        turnId: "turn-1",
-      },
-      context,
-      sessionContext("scheduled-result", "original-message")
-    );
-    expect(scheduleDeliveryCapture.finalize).toHaveBeenCalledExactlyOnceWith(
-      "00000000-0000-4000-8000-000000000002",
-      "00000000-0000-4000-8000-000000000004",
-      "suppressed"
-    );
-    expect(post).not.toHaveBeenCalled();
-  });
-
   it("passes media and a reply target through the Linq adapter", async () => {
     const nativeFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

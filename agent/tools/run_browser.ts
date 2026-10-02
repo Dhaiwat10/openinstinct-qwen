@@ -4,31 +4,20 @@ import { taskCompletionSchema } from "@agent/subagents/browser-agent/lib/complet
 
 export default defineWorkflowTool({
   description:
-    "Execute one bounded browser assignment and return a verified result with optional private image artifacts. Continue the same worker using its taskId. The completion schema is supplied automatically.",
-  inputSchema: z.object({ message: z.string().min(1) }),
-  async serve(receive, ctx) {
+    "Execute one bounded browser assignment and return a verified result with optional private image artifacts. Pass agentId to continue a parked worker. The completion schema is supplied automatically.",
+  inputSchema: z.object({
+    message: z.string().min(1),
+    agentId: z.string().optional(),
+  }),
+  execution: "background",
+  async execute(input, ctx) {
     "use workflow";
-    const worker = ctx.agent("browser-agent");
-    /* oxlint-disable eslint/no-await-in-loop -- A resumable task serves sequential calls on one child session. */
-    for (;;) {
-      const { input, abortSignal } = await receive();
-      try {
-        const response = await worker.send(input.message, {
-          outputSchema: taskCompletionSchema,
-          signal: abortSignal,
-        });
-        const result = await response.result();
-        if (abortSignal.aborted) continue;
-        if (result.status === "failed") {
-          throw new Error(
-            result.error?.message ?? "The browser worker failed."
-          );
-        }
-        ctx.reply(taskCompletionSchema.parse(result.data));
-      } catch (error) {
-        if (!abortSignal.aborted) throw error;
-      }
-    }
-    /* oxlint-enable eslint/no-await-in-loop */
+    const result = await ctx.agent("browser-agent", {
+      ...input,
+      outputSchema: z
+        .record(z.string(), z.json())
+        .parse(z.toJSONSchema(taskCompletionSchema)),
+    });
+    return taskCompletionSchema.parse(result);
   },
 });

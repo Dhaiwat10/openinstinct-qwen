@@ -216,18 +216,17 @@ instruct the agent not to repeat them in chat. Financial-data tools also require
 the corresponding Link grant scopes; the default grant requests
 `payment_methods.agentic` and `userinfo:read`.
 
-## Eve upgrades
+## Eve compatibility
 
-This application uses Eve `0.69.0`. Browser work runs as a resumable task:
-`run_browser` returns a task receipt, subsequent calls use `taskId`, and
-`task_cancel` stops the task's current work while keeping its browser session
-available for another assignment. Task results arrive within the open turn.
+This branch pins Eve `0.66.3` and the published Link extension `0.2.3`.
+The extension's tool contract is supported directly, so it needs no compatibility
+rebuild. Browser work uses the background workflow and `agentId` continuation
+APIs supported by this Eve version.
 
-Eve rejects session handoffs across the 0.69 upgrade boundary. Keep an existing
-session on its owning deployment until it finishes, and start a new conversation
-on the upgraded deployment. This migration does not cancel or reset existing
-production sessions. Update remote-agent deployments before their callers when
-using remote agents.
+Do not move an active session from Eve `0.69` onto this deployment. Keep existing
+sessions on their owning deployment until they finish, and start a new
+conversation on this branch's deployment. This rollback does not reset or
+cancel production sessions.
 
 ## Local development
 

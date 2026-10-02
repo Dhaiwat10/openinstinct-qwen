@@ -47,7 +47,7 @@ export default cases.map((testCase) =>
         status: "completed",
         count: 1,
       });
-      turn.notEvent("task.started", { data: { name: "run_browser" } });
+      turn.notEvent("subagent.called", { data: { name: "browser-agent" } });
       const text = await requireDeliveredText(t, turn);
       assertPlainTextDelivery(t, text);
     },

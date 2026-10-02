@@ -57,7 +57,7 @@ describe("worker input bubbling", () => {
       "utf8"
     );
 
-    expect(instructions).toContain("continue that worker with its `taskId`");
+    expect(instructions).toContain("continue that worker with its `agentId`");
     expect(instructions).toContain(
       "Before surfacing a `Needs user input:` blocker"
     );

@@ -40,9 +40,6 @@ const scope = { userId: "user-1", workspaceId: "workspace-1" };
 const context = {
   agent: { name: "test-agent" },
   channel: {},
-  cancel() {
-    throw new Error("Unexpected cancellation in fixture.");
-  },
   async getSandbox() {
     throw new Error("Sandbox access is outside this focused test.");
   },

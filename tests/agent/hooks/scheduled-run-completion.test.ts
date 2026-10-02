@@ -32,9 +32,6 @@ const retryLeaseToken = "00000000-0000-4000-8000-000000000005";
 const context = {
   agent: { name: "test-agent" },
   channel: { continuationToken: `scheduled-run:${runId}` },
-  cancel() {
-    throw new Error("Unexpected cancellation in fixture.");
-  },
   async getSandbox() {
     throw new Error("Sandbox access is outside this focused test.");
   },
@@ -202,24 +199,58 @@ describe("scheduled run completion hook", () => {
     );
   });
 
-  it("ignores intermediate task-waiting messages within the same turn", async () => {
-    const completed = completionHook.events?.["message.completed"];
-    await completed?.(
+  it("defers an interim outcome until background work wakes a later turn", async () => {
+    const delegated = completionHook.events?.["action.result"];
+    await delegated?.(
       {
         data: {
-          finishReason: "tool-calls",
-          message: "",
+          result: {
+            kind: "tool-result",
+            callId: "call-1",
+            toolName: "run_browser",
+            output: { status: "working", taskId: "task-1" },
+          },
+          status: "completed",
           sequence: 1,
           stepIndex: 0,
           turnId: "turn-1",
         },
-        meta: { at: "2026-09-01T13:01:00.000Z", id: "interim" },
+        meta: { at: "2026-09-01T13:01:00.000Z", id: "event-task" },
+        type: "action.result",
+      },
+      context
+    );
+    services.complete.mockResolvedValue({ status: "deferred" });
+
+    const completed = completionHook.events?.["message.completed"];
+    await completed?.(
+      {
+        data: {
+          finishReason: "stop",
+          message: null,
+          sequence: 0,
+          stepIndex: 1,
+          turnId: "turn-1",
+        },
+        meta: { at: "2026-09-01T13:01:01.000Z", id: "event-interim" },
         type: "message.completed",
       },
       context
     );
-    expect(services.complete).not.toHaveBeenCalled();
-    expect(services.deferCompletion).not.toHaveBeenCalled();
+
+    expect(services.deferCompletion).toHaveBeenCalledExactlyOnceWith(
+      runId,
+      leaseToken,
+      "turn-1",
+      new Date("2026-09-01T13:01:00.000Z")
+    );
+    expect(services.complete).toHaveBeenCalledWith(
+      runId,
+      leaseToken,
+      "turn-1",
+      expect.anything(),
+      new Date("2026-09-01T13:01:01.000Z")
+    );
   });
 
   it("ignores messages emitted before a tool call completes", async () => {

@@ -16,21 +16,9 @@ export function fixtureModel(worker: boolean) {
               .map((part) => (part.type === "text" ? part.text : ""))
               .join("")
           : "";
-      const expectedTool = worker
-        ? "wait_for_cancellation"
-        : text.startsWith("Cancel:")
-          ? "task_cancel"
-          : "run_browser";
       const returned = prompt
         .slice(userIndex + 1)
-        .some(
-          (message) =>
-            message.role === "tool" &&
-            message.content.some(
-              (part) =>
-                part.type === "tool-result" && part.toolName === expectedTool
-            )
-        );
+        .some((message) => message.role === "tool");
       let toolName: string | undefined;
       let input = "{}";
       if (worker) {
@@ -53,12 +41,12 @@ export function fixtureModel(worker: boolean) {
         };
         input = JSON.stringify(
           text.startsWith("Resume:")
-            ? { ...assignment, taskId: text.slice(7) }
+            ? { ...assignment, agentId: text.slice(7) }
             : assignment
         );
       } else if (!returned && text.startsWith("Cancel:")) {
         toolName = "task_cancel";
-        input = JSON.stringify({ taskId: text.slice(7) });
+        input = JSON.stringify({ taskIds: [text.slice(7)] });
       }
       if (toolName && !tools?.some((tool) => tool.name === toolName))
         throw new Error(`Missing fixture tool: ${toolName}`);

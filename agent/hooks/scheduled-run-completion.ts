@@ -1,8 +1,10 @@
 import { defineHook } from "eve/hooks";
+import { browserTaskReceiptSchema } from "@agent/lib/browser-task";
 import { scheduledRunIdentity } from "@agent/lib/schedules/identity";
 import { scheduledRunOutcomeSchema } from "@shared/schedules/outcome";
 import {
   completeScheduledAgentRun,
+  deferScheduledAgentRunCompletion,
   markScheduledAgentRunStarted,
   releaseScheduledAgentRun,
   waitForScheduledAgentRunInput,
@@ -60,6 +62,26 @@ export default defineHook({
         sessionId: ctx.session.id,
       });
     },
+    async "action.result"(event, ctx) {
+      if (event.data.status !== "completed") return;
+      const task = browserTaskReceiptSchema.safeParse(event.data.result);
+      if (!task.success) return;
+      const identity = scheduledRunIdentity(ctx.session.auth);
+      if (!identity) return;
+      const deferred = await deferScheduledAgentRunCompletion(
+        identity.runId,
+        identity.leaseToken,
+        ctx.session.turn.id,
+        new Date(event.meta.at)
+      );
+      console.info("[scheduled-run] worker delegated background work", {
+        deferred,
+        runId: identity.runId,
+        sessionId: ctx.session.id,
+        taskId: task.data.output.taskId,
+        turnId: ctx.session.turn.id,
+      });
+    },
     async "message.completed"(event, ctx) {
       const identity = scheduledRunIdentity(ctx.session.auth);
       if (!identity) return;
@@ -80,7 +102,7 @@ export default defineHook({
         logDeadLetterReportQueued(status, identity.runId, ctx.session.id);
         return;
       }
-      const message = event.data.message.trim().slice(0, 4_000);
+      const message = event.data.message?.trim().slice(0, 4_000);
       const outcome = scheduledRunOutcomeSchema.parse(
         message
           ? {

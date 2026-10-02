@@ -68,18 +68,23 @@ describe("reply targets", () => {
   });
 
   it("registers background workflow receipts through the public hook", async () => {
-    const handler = backgroundReplyTargetHook.events?.["task.started"];
+    const handler = backgroundReplyTargetHook.events?.["action.result"];
     await handler?.(
       {
         data: {
-          callId: "call-1",
-          name: "run_browser",
-          kind: "tool",
-          taskId: "task-from-hook",
+          result: {
+            kind: "tool-result",
+            callId: "call-1",
+            toolName: "run_browser",
+            output: { status: "working", taskId: "task-from-hook" },
+          },
+          status: "completed",
+          sequence: 1,
           turnId: "turn-1",
+          stepIndex: 0,
         },
         meta: { at: "2026-09-03T12:00:00.000Z", id: "event-1" },
-        type: "task.started",
+        type: "action.result",
       },
       hookContext(linqAuth("hook-origin"))
     );
@@ -169,9 +174,6 @@ function hookContext(auth: SessionAuth): HookContext {
   return {
     agent: { name: "main" },
     channel: { kind: "channel:linq" },
-    cancel() {
-      throw new Error("Unexpected cancellation in fixture.");
-    },
     async getSandbox() {
       throw new Error("Sandbox access is outside this focused test.");
     },

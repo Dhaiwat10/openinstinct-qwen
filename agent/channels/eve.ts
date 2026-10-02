@@ -73,14 +73,6 @@ const channel = eveChannel({
     async "action.result"(event, _channel, session) {
       if (
         event.status === "completed" &&
-        event.result.kind === "tool-result" &&
-        event.result.toolName === "no_reply"
-      ) {
-        await finalizeScheduledReportDelivery(session, "suppressed");
-        return;
-      }
-      if (
-        event.status === "completed" &&
         sendMessageToolResultSchema.safeParse(event.result).success
       ) {
         await finalizeScheduledReportDelivery(session);

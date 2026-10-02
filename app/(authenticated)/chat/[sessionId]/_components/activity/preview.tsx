@@ -18,7 +18,7 @@ export function TracePreview({
   readonly onClose: () => void;
   readonly session: SubagentSession;
 }) {
-  const history = useSessionHistory(session.sessionId);
+  const history = useSessionHistory(session.childSessionId);
   const status = getSubagentStatus(history.events, session);
 
   return (

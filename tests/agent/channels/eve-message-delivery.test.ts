@@ -73,30 +73,6 @@ describe("Eve scheduled report delivery", () => {
     );
   });
 
-  it("suppresses a report when no_reply ends the turn without a message", async () => {
-    await handleActionResult(
-      {
-        result: {
-          callId: "call-no-reply",
-          kind: "tool-result",
-          toolName: "no_reply",
-          output: null,
-        },
-        sequence: 0,
-        status: "completed",
-        stepIndex: 0,
-        turnId: "turn-1",
-      },
-      {},
-      scheduledReportSession()
-    );
-    expect(delivery.finalize).toHaveBeenCalledExactlyOnceWith(
-      "00000000-0000-4000-8000-000000000002",
-      "00000000-0000-4000-8000-000000000004",
-      "suppressed"
-    );
-  });
-
   it("suppresses a report when the turn finishes without send_message", async () => {
     await handleMessageCompleted(
       {

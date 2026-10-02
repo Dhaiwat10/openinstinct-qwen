@@ -1,83 +1,155 @@
-import type { MessageStreamEvent, TaskSettledStreamEvent } from "eve/client";
+import type { MessageStreamEvent } from "eve/client";
 import { describe, expect, it } from "vitest";
 import {
   didCompleteWorker,
   didFinishWorker,
 } from "@evals/browser/worker-events";
 
-const started = {
-  type: "task.started",
-  data: {
-    callId: "call_worker",
-    taskId: "task_worker",
-    turnId: "turn_0",
-    name: "run_browser",
-    kind: "tool",
-  },
-  meta: { at: "2026-08-27T18:00:00.000Z", id: "start" },
-} satisfies MessageStreamEvent;
-function settled(
-  status: TaskSettledStreamEvent["data"]["status"],
-  output?: TaskSettledStreamEvent["data"]["output"]
-): MessageStreamEvent {
+type ActionResultEvent = Extract<MessageStreamEvent, { type: "action.result" }>;
+type SubagentResult = Extract<
+  ActionResultEvent["data"]["result"],
+  { kind: "subagent-result"; origin: "child" }
+>;
+
+function completedWorkerNotification(output: {
+  readonly message: string;
+  readonly status: "failure" | "success";
+}) {
   return {
-    type: "task.settled",
-    data: { ...started.data, status, output },
-    meta: { at: "2026-08-27T18:00:01.000Z", id: "settled" },
-  };
+    data: {
+      message: `Background task task_worker (browser-agent) is completed.\n\nResult:\n${JSON.stringify(output)}`,
+      sequence: 0,
+      turnId: "turn_0",
+    },
+    meta: { at: "2026-08-27T18:00:01.000Z", id: "evt_notification" },
+    type: "message.received",
+  } satisfies MessageStreamEvent;
+}
+
+function terminalWorkerNotification(message: string) {
+  return {
+    data: {
+      message: `Background task task_worker (browser-agent) ${message}`,
+      sequence: 0,
+      turnId: "turn_0",
+    },
+    meta: { at: "2026-08-27T18:00:01.000Z", id: "evt_notification" },
+    type: "message.received",
+  } satisfies MessageStreamEvent;
+}
+
+function completedWorkerResult(
+  output: SubagentResult["output"],
+  backgroundTask?: SubagentResult["backgroundTask"]
+) {
+  return {
+    data: {
+      result: {
+        backgroundTask,
+        callId: "call_worker",
+        kind: "subagent-result",
+        origin: "child",
+        outcome: {
+          kind: "parked",
+          result: { kind: "succeeded", output },
+          usageDelta: {
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            inputTokens: 1,
+            outputTokens: 1,
+          },
+        },
+        output,
+        subagentName: "browser-agent",
+      },
+      sequence: 0,
+      status: "completed",
+      stepIndex: 0,
+      turnId: "turn_0",
+    },
+    meta: { at: "2026-08-27T18:00:00.000Z", id: "evt_worker" },
+    type: "action.result",
+  } satisfies ActionResultEvent;
 }
 
 describe("browser benchmark event detection", () => {
-  it("reads a structured result from an attached worker session", () => {
+  it("reads the structured result from an attached worker session", () => {
     const completion = {
-      type: "result.completed",
       data: {
-        result: { images: [], message: "Done", status: "success" },
+        result: {
+          images: [],
+          message: "Browser assignment completed.",
+          status: "success",
+        },
         sequence: 0,
         stepIndex: 0,
         turnId: "turn_0",
       },
-      meta: started.meta,
+      meta: { at: "2026-08-27T18:00:00.000Z", id: "evt_result" },
+      type: "result.completed",
     } satisfies MessageStreamEvent;
+
     expect(didCompleteWorker([completion])).toBe(true);
   });
-  it("waits for task settlement instead of treating admission as completion", () => {
-    expect(didFinishWorker([started])).toBe(false);
-    expect(didCompleteWorker([started])).toBe(false);
-    const events = [
-      started,
-      settled("completed", { images: [], message: "Done", status: "success" }),
-    ];
-    expect(didFinishWorker(events)).toBe(true);
-    expect(didCompleteWorker(events)).toBe(true);
+
+  it("recognizes a successful inline subagent result", () => {
+    expect(
+      didCompleteWorker([
+        completedWorkerResult({
+          message: "Browser assignment completed.",
+          status: "success",
+        }),
+      ])
+    ).toBe(true);
   });
-  it("treats a structured failure as terminal but unsuccessful", () => {
+
+  it("waits for a background worker's native task notification", () => {
+    const receipt = completedWorkerResult(
+      { agentId: "agent_worker", status: "working", taskId: "task_worker" },
+      { status: "working", taskId: "task_worker" }
+    );
+    const initialTurn = [receipt];
+    const terminalTurn = [
+      completedWorkerNotification({
+        message: "Browser assignment completed.",
+        status: "success",
+      }),
+    ];
+
+    expect(didCompleteWorker(initialTurn)).toBe(false);
+    expect(didCompleteWorker([...initialTurn, ...terminalTurn])).toBe(true);
+  });
+
+  it("treats a structured worker failure as terminal but unsuccessful", () => {
+    const receipt = completedWorkerResult(
+      { agentId: "agent_worker", status: "working", taskId: "task_worker" },
+      { status: "working", taskId: "task_worker" }
+    );
     const events = [
-      started,
-      settled("completed", {
-        images: [],
-        message: "Failed",
+      receipt,
+      completedWorkerNotification({
+        message: "Browser assignment failed.",
         status: "failure",
       }),
     ];
+
     expect(didFinishWorker(events)).toBe(true);
     expect(didCompleteWorker(events)).toBe(false);
   });
-  it.each(["failed", "cancelled"] as const)(
-    "treats %s settlement as terminal",
-    (status) => {
-      const events = [started, settled(status)];
+
+  it.each(["failed.\n\nError:\nWorker failed.", "is cancelled."])(
+    "treats a native %s notification as terminal",
+    (notification) => {
+      const receipt = completedWorkerResult(
+        { agentId: "agent_worker", status: "working", taskId: "task_worker" },
+        { status: "working", taskId: "task_worker" }
+      );
+      const initialTurn = [receipt];
+      const terminalTurn = [terminalWorkerNotification(notification)];
+      const events = [...initialTurn, ...terminalTurn];
+
       expect(didFinishWorker(events)).toBe(true);
       expect(didCompleteWorker(events)).toBe(false);
     }
   );
-  it("waits for a continued call even after the same task previously completed", () => {
-    const events = [
-      started,
-      settled("completed", { images: [], message: "Done", status: "success" }),
-      { ...started, data: { ...started.data, callId: "second_call" } },
-    ];
-    expect(didFinishWorker(events)).toBe(false);
-    expect(didCompleteWorker(events)).toBe(false);
-  });
 });

@@ -26,5 +26,4 @@ allowBuilds:
   sharp: true
 patchedDependencies:
   "@linqapp/chat-sdk-adapter@0.5.1": patches/@linqapp__chat-sdk-adapter@0.5.1.patch
-  "@stripe/link-integrations-eve@0.2.3": patches/@stripe__link-integrations-eve@0.2.3.patch
-  eve@0.69.0: patches/eve@0.69.0.patch
+  eve@0.66.3: patches/eve@0.66.3.patch

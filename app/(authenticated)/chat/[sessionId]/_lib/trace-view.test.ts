@@ -117,19 +117,48 @@ describe("trace view", () => {
 function workerCompletedReceipt(taskId: string): MessageStreamEvent {
   return {
     data: {
-      taskId,
+      backgroundTask: { status: "working", taskId },
       callId: "call_worker",
-      turnId: "turn_worker",
-      name: "run_browser",
-      kind: "tool",
+      output: `{"status":"working","taskId":"${taskId}"}`,
+      subagentName: "browser-agent",
     },
     meta: { at: "2026-08-27T20:00:00.000Z", id: "receipt" },
-    type: "task.started",
+    type: "subagent.completed",
   };
 }
 
 function workerActionReceipt(taskId: string): MessageStreamEvent {
-  return workerCompletedReceipt(taskId);
+  return {
+    data: {
+      result: {
+        backgroundTask: { status: "working", taskId },
+        callId: "call_worker",
+        kind: "subagent-result",
+        origin: "child",
+        outcome: {
+          kind: "parked",
+          result: {
+            kind: "succeeded",
+            output: { agentId: "agent_worker", status: "working", taskId },
+          },
+          usageDelta: {
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            inputTokens: 1,
+            outputTokens: 1,
+          },
+        },
+        output: { agentId: "agent_worker", status: "working", taskId },
+        subagentName: "browser-agent",
+      },
+      sequence: 1,
+      status: "completed",
+      stepIndex: 0,
+      turnId: "turn_worker",
+    },
+    meta: { at: "2026-08-27T20:00:00.000Z", id: "worker-receipt" },
+    type: "action.result",
+  };
 }
 
 function workerCancellationResult(taskId: string): MessageStreamEvent {
