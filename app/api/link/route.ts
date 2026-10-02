@@ -17,6 +17,32 @@ const privateHeaders = {
   "referrer-policy": "no-referrer",
 };
 
+export async function GET(request: Request) {
+  const attempt = z
+    .uuid()
+    .safeParse(new URL(request.url).searchParams.get("attempt"));
+  if (!attempt.success)
+    return new Response("Invalid wallet request.", {
+      status: 400,
+      headers: privateHeaders,
+    });
+  const session = await getAuthSession(request.headers);
+  if (!session)
+    return new Response("Sign in to continue.", {
+      status: 401,
+      headers: privateHeaders,
+    });
+  if (!linkConfigured())
+    return new Response("Link is not configured.", {
+      status: 503,
+      headers: privateHeaders,
+    });
+
+  // Only the signed-in owner of a live agent challenge can start this redirect.
+  // Linking and granting wallet access still require consent on Link.
+  return connectLink(session.user.id, request.headers, attempt.data);
+}
+
 export async function POST(request: Request) {
   if (request.headers.get("origin") !== applicationOrigin()) {
     return new Response("Invalid request origin.", {
@@ -44,23 +70,35 @@ export async function POST(request: Request) {
       headers: privateHeaders,
     });
 
-  try {
-    if (input.data.operation === "disconnect") {
+  if (input.data.operation === "disconnect") {
+    try {
       await disconnectLink(session.user.id, request.headers);
       return new Response(null, {
         status: 303,
         headers: { ...privateHeaders, location: "/link" },
       });
+    } catch {
+      return connectionFailed(input.data.attempt);
     }
-    const callbackURL = input.data.attempt
-      ? await linkAuthorizationCallback(session.user.id, input.data.attempt)
+  }
+  return connectLink(session.user.id, request.headers, input.data.attempt);
+}
+
+async function connectLink(
+  userId: string,
+  requestHeaders: Headers,
+  attempt?: string
+) {
+  try {
+    const callbackURL = attempt
+      ? await linkAuthorizationCallback(userId, attempt)
       : new URL("/link", applicationOrigin()).href;
     const errorCallback = new URL(callbackURL);
     errorCallback.searchParams.set("error", "authorization_failed");
     const auth = await getAuth();
     const result = await auth.api.connectLink({
       body: { callbackURL, errorCallbackURL: errorCallback.href },
-      headers: request.headers,
+      headers: requestHeaders,
       returnHeaders: true,
     });
     const headers = new Headers({
@@ -72,13 +110,16 @@ export async function POST(request: Request) {
     return new Response(null, { status: 303, headers });
   } catch {
     // Provider failures may carry tokens or upstream response bodies.
-    const destination = new URL("/link", applicationOrigin());
-    destination.searchParams.set("error", "connection_failed");
-    if (input.data.attempt)
-      destination.searchParams.set("attempt", input.data.attempt);
-    return new Response(null, {
-      status: 303,
-      headers: { ...privateHeaders, location: destination.href },
-    });
+    return connectionFailed(attempt);
   }
+}
+
+function connectionFailed(attempt?: string) {
+  const destination = new URL("/link", applicationOrigin());
+  destination.searchParams.set("error", "connection_failed");
+  if (attempt) destination.searchParams.set("attempt", attempt);
+  return new Response(null, {
+    status: 303,
+    headers: { ...privateHeaders, location: destination.href },
+  });
 }

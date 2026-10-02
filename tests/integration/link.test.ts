@@ -43,7 +43,7 @@ describe("Link wallet integration", () => {
       vi.spyOn(Database, "db", "get").mockReturnValue(database as never);
       const { getAuth } = await import("@db/services/auth");
       const link = await import("@db/services/auth/link");
-      const { POST } = await import("@app/api/link/route");
+      const { GET, POST } = await import("@app/api/link/route");
       const { linkAuth } = await import("@agent/lib/link-auth");
       const auth = await getAuth();
       const signedIn = await auth.api.verifyPhoneNumber({
@@ -97,7 +97,7 @@ describe("Link wallet integration", () => {
         throw new Error("Expected a resumable Link authorization.");
       const pending = authorization.resume;
       expect(authorization.challenge.url).toBe(
-        `http://localhost:3000/link?attempt=${pending.attempt}`
+        `http://localhost:3000/api/link?attempt=${pending.attempt}`
       );
       await expect(
         link.linkAuthorizationCallback("different-user", pending.attempt)
@@ -128,7 +128,37 @@ describe("Link wallet integration", () => {
       missingOrigin.headers.delete("origin");
       expect((await POST(missingOrigin)).status).toBe(403);
 
-      const started = await POST(request());
+      const authorizationUrl = authorization.challenge.url;
+      if (!authorizationUrl) throw new Error("Expected a Link connection URL.");
+      expect(
+        (await GET(new Request("http://localhost:3000/api/link"))).status
+      ).toBe(400);
+      expect(
+        (await GET(new Request(`${authorizationUrl}invalid`))).status
+      ).toBe(400);
+      expect((await GET(new Request(authorizationUrl))).status).toBe(401);
+      const otherSignedIn = await auth.api.verifyPhoneNumber({
+        body: { phoneNumber: "+12025550124", code: "123456" },
+        returnHeaders: true,
+      });
+      const otherHeaders = new Headers({
+        cookie: otherSignedIn.headers
+          .getSetCookie()
+          .map((cookie) => cookie.split(";")[0])
+          .join("; "),
+      });
+      const otherUser = await GET(
+        new Request(authorizationUrl, { headers: otherHeaders })
+      );
+      expect(new URL(otherUser.headers.get("location") ?? "").origin).toBe(
+        "http://localhost:3000"
+      );
+      expect(otherUser.headers.getSetCookie()).toEqual([]);
+      const navigationHeaders = new Headers(headers);
+      navigationHeaders.delete("origin");
+      const started = await GET(
+        new Request(authorizationUrl, { headers: navigationHeaders })
+      );
       expect(started.status).toBe(303);
       expect(started.headers.get("referrer-policy")).toBe("no-referrer");
       const destination = new URL(started.headers.get("location") ?? "");
@@ -252,6 +282,18 @@ describe("Link wallet integration", () => {
       expect(await link.consumeLinkAuthorization(userId, expired.attempt)).toBe(
         false
       );
+      const expiredRedirect = await GET(
+        new Request(
+          `http://localhost:3000/api/link?attempt=${expired.attempt}`,
+          { headers }
+        )
+      );
+      expect(
+        new URL(expiredRedirect.headers.get("location") ?? "").searchParams.get(
+          "error"
+        )
+      ).toBe("connection_failed");
+      expect(expiredRedirect.headers.getSetCookie()).toEqual([]);
 
       // A different wallet cannot silently replace or coexist with this one.
       linkSubject = "different-link-user";

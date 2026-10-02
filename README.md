@@ -202,8 +202,10 @@ before connecting a different one; reconnecting the same wallet refreshes its
 grant.
 
 Users connect or disconnect their wallet from **Link wallet** in the sidebar.
-An agent request that needs a wallet opens the same connection flow and resumes
-through Eve's authorization callback. Connection attempts expire after ten
+An agent request that needs a wallet sends a native connection link. Opening it
+redirects to Link's consent screen after any required OpenInstinct sign-in, then
+resumes through Eve's authorization callback. Purchase approval links use Link's
+original URLs directly. Connection attempts expire after ten
 minutes and belong to the signed-in user. Better Auth stores encrypted grants
 and refreshes tokens; disconnection revokes the Link grant before removing it.
 Phone sign-in continues to work after disconnecting a wallet.

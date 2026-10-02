@@ -17,7 +17,8 @@ describe("Link status-only override", () => {
       amount: 2306,
       currency: "usd",
       merchant_url: "https://shop.example",
-      approval_url: "https://link.com/approve",
+      approval_url:
+        "https://app.link.com/approve/spr_1?approval_token=opaque%2Btoken&source=agent",
       card: {
         id: "card_1",
         brand: "visa",
@@ -37,6 +38,8 @@ describe("Link status-only override", () => {
       status: "approved",
       amount: 2306,
       currency: "usd",
+      approval_url:
+        "https://app.link.com/approve/spr_1?approval_token=opaque%2Btoken&source=agent",
     });
     expect(JSON.stringify(output)).not.toMatch(
       /4242424242424242|098|lpt_secret|spt_secret/u
