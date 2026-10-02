@@ -14,18 +14,71 @@ import { requireOwnedBrowserSession } from "../lib/owned-browser";
 import {
   currentKernelPageOrigin,
   fillWithKernelNativeAutofill,
+  fillKernelPaymentFields,
 } from "../lib/autofill/native";
 
-const inputSchema = z.strictObject({
-  browserSessionId: z.string().trim().min(1).max(500),
-  spendRequestId: z.string().regex(/^[A-Za-z0-9_-]{1,200}$/u),
-  amount: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  currency: z.string().regex(/^[a-z]{3}$/u),
+const paymentFieldSchema = z.strictObject({
+  field: z.enum([
+    "name",
+    "number",
+    "exp_month",
+    "exp_year",
+    "expiration",
+    "cvc",
+  ]),
+  selector: z.string().trim().min(1).max(1000),
+  frameUrl: z.url().max(4000).optional(),
+  format: z.enum(["MM/YY", "MM/YYYY"]).optional(),
 });
+
+const inputSchema = z
+  .strictObject({
+    browserSessionId: z.string().trim().min(1).max(500),
+    spendRequestId: z.string().regex(/^[A-Za-z0-9_-]{1,200}$/u),
+    amount: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    currency: z.string().regex(/^[a-z]{3}$/u),
+    pageUrl: z.url().max(4000).optional(),
+    fields: z.array(paymentFieldSchema).min(3).max(6).optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (!input.fields) return;
+    if (!input.pageUrl)
+      ctx.addIssue({
+        code: "custom",
+        path: ["pageUrl"],
+        message: "Field bindings require the exact current checkout URL.",
+      });
+    const roles = new Set(input.fields.map(({ field }) => field));
+    const hasExpiry = roles.has("expiration")
+      ? !roles.has("exp_month") && !roles.has("exp_year")
+      : roles.has("exp_month") && roles.has("exp_year");
+    if (
+      roles.size !== input.fields.length ||
+      !roles.has("number") ||
+      !roles.has("cvc") ||
+      !hasExpiry
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["fields"],
+        message:
+          "Bind each card field once, including number, CVC, and either combined expiration or both month and year.",
+      });
+    }
+    for (const [index, binding] of input.fields.entries()) {
+      if ((binding.field === "expiration") !== (binding.format !== undefined)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["fields", index, "format"],
+          message: "Only combined expiration requires a format.",
+        });
+      }
+    }
+  });
 
 export default defineTool({
   description:
-    "Fill a standard card checkout with an approved Link spend request. Supply only its ID, an owned browser session, and the total amount in minor units and lowercase currency just observed at checkout. The tool retrieves credentials for the signed-in user's wallet, verifies approval and merchant origin, and fills them server-side. Never provide or read card details. Focus a card field first. This does not submit a purchase; verify the merchant and total again before submitting. Shared Payment Tokens, Link Pay Tokens, and recurring requests are unsupported here.",
+    "Fill a standard card checkout with an approved Link spend request. Supply only its ID, an owned browser session, and the total amount in minor units and lowercase currency just observed at checkout. The tool retrieves credentials for the signed-in user's wallet, verifies approval and merchant origin, and fills them server-side. Never provide or read card details. For hosted payment fields, supply the exact current pageUrl and CSS field bindings observed without reading values; optional frameUrl disambiguates inputs across frames. Combined expiration requires MM/YY or MM/YYYY. Supported processor frames include Braintree, Shopify, PayPal card fields, and Stripe. Without bindings, focus a same-origin card field for native autofill. This does not submit a purchase; verify the merchant and total again before submitting. Shared Payment Tokens, Link Pay Tokens, and recurring requests are unsupported here.",
   inputSchema,
   outputSchema: z.object({
     success: z.literal(true),
@@ -110,6 +163,7 @@ export default defineTool({
     const origin = await currentKernelPageOrigin({
       browserSessionId: input.browserSessionId,
       signal: context.abortSignal,
+      pageUrl: input.pageUrl,
     });
     if (origin !== merchant.origin) {
       throw new Error(
@@ -163,13 +217,36 @@ export default defineTool({
 
     try {
       // The existing injector rechecks the origin and masks filled card fields.
-      const result = await fillWithKernelNativeAutofill({
-        browserSessionId: input.browserSessionId,
-        claims,
-        expectedOrigin: origin,
-        kind: "payment",
-        signal: context.abortSignal,
-      });
+      const result = input.fields
+        ? await fillKernelPaymentFields({
+            browserSessionId: input.browserSessionId,
+            pageUrl: z.url().parse(input.pageUrl),
+            expectedOrigin: origin,
+            fields: input.fields.map((binding) => {
+              const values = {
+                name: card.billing_address.name,
+                number: card.number,
+                exp_month: String(card.exp_month).padStart(2, "0"),
+                exp_year: String(card.exp_year),
+                expiration: `${String(card.exp_month).padStart(2, "0")}/${binding.format === "MM/YY" ? String(card.exp_year).slice(-2) : String(card.exp_year)}`,
+                cvc: card.cvc,
+              };
+              return {
+                selector: binding.selector,
+                frameUrl: binding.frameUrl,
+                value: values[binding.field],
+              };
+            }),
+            signal: context.abortSignal,
+          })
+        : await fillWithKernelNativeAutofill({
+            browserSessionId: input.browserSessionId,
+            claims,
+            expectedOrigin: origin,
+            kind: "payment",
+            signal: context.abortSignal,
+            pageUrl: input.pageUrl,
+          });
       return {
         success: true as const,
         spendRequestId: input.spendRequestId,
@@ -180,7 +257,7 @@ export default defineTool({
       };
     } catch {
       throw new Error(
-        "Link card autofill could not be confirmed. Check the current checkout without reading payment fields; do not submit or retry blindly."
+        "Link card filling could not be confirmed. Check field bindings and the current checkout without reading payment values; do not submit or retry blindly."
       );
     }
   },
