@@ -5,7 +5,7 @@ import { defineTool } from "eve/tools";
 // Eve's qualified-name override retains the mounted extension's authorization.
 export default defineTool({
   description:
-    "Check a Link spend request's approval status and purchase details without retrieving payment credentials. Pass the approved request ID to browser-agent's fill_from_link for a standard card checkout. Credential expansion is intentionally unavailable to the coordinator.",
+    "Check a Link spend request's approval status and purchase details without retrieving payment credentials. Pass the approved request ID to browser-agent's fill_from_link for a standard or supported hosted card checkout. Credential expansion is intentionally unavailable to the coordinator.",
   inputSchema: linkToolSchemas.retrieveSpendRequest.omit({ include: true }),
   async execute({ id }, context) {
     const request = await retrieve_spend_request.execute({ id }, context);

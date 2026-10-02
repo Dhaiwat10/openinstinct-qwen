@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import type { SpendRequest } from "@stripe/link-sdk";
 import * as WorkerAccess from "@agent/subagents/browser-agent/lib/access";
 import * as OwnedBrowser from "@agent/subagents/browser-agent/lib/owned-browser";
@@ -20,6 +21,7 @@ const access = vi.spyOn(WorkerAccess, "requireWorkerScope");
 const owned = vi.spyOn(OwnedBrowser, "requireOwnedBrowserSession");
 const origin = vi.spyOn(Autofill, "currentKernelPageOrigin");
 const fill = vi.spyOn(Autofill, "fillWithKernelNativeAutofill");
+const fillFields = vi.spyOn(Autofill, "fillKernelPaymentFields");
 const token = vi.spyOn(context, "getToken");
 const requireAuth = vi.spyOn(context, "requireAuth");
 
@@ -63,6 +65,10 @@ beforeEach(() => {
   token.mockResolvedValue({ token: "wallet-token-user-1" });
   origin.mockResolvedValue("https://shop.example");
   fill.mockResolvedValue({ filledClaims: 5, origin: "https://shop.example" });
+  fillFields.mockResolvedValue({
+    filledClaims: 3,
+    origin: "https://shop.example",
+  });
   fetchMock.mockImplementation(async () => Response.json(approvedRequest()));
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -111,6 +117,151 @@ describe("Link browser bridge", () => {
     expect(JSON.stringify(output)).not.toMatch(
       /4242424242424242|098|wallet-token|Test Buyer/u
     );
+  });
+
+  it.each([
+    {
+      fields: [
+        { field: "number", selector: "#number" },
+        { field: "expiration", selector: "#expiry", format: "MM/YY" },
+        { field: "cvc", selector: "#cvc" },
+      ],
+    },
+    {
+      pageUrl: "https://shop.example/checkout",
+      fields: [
+        { field: "number", selector: "#number" },
+        { field: "cvc", selector: "#cvc" },
+        { field: "name", selector: "#name" },
+      ],
+    },
+    {
+      pageUrl: "https://shop.example/checkout",
+      fields: [
+        { field: "number", selector: "#number" },
+        { field: "expiration", selector: "#expiry" },
+        { field: "cvc", selector: "#cvc" },
+      ],
+    },
+    {
+      pageUrl: "https://shop.example/checkout",
+      fields: [
+        { field: "number", selector: "#number" },
+        { field: "expiration", selector: "#expiry", format: "MM/YY" },
+        { field: "cvc", selector: "#cvc", format: "MM/YY" },
+      ],
+    },
+  ])(
+    "rejects incomplete or contradictory hosted field contracts: %j",
+    (change) => {
+      const schema = fillFromLink.inputSchema;
+      if (!(schema instanceof z.ZodType))
+        throw new Error("Expected the authored field schema.");
+      expect(schema.safeParse({ ...input, ...change }).success).toBe(false);
+    }
+  );
+
+  it.each(["MM/YY", "MM/YYYY"] as const)(
+    "fills hosted fields through the approved wallet using %s expiration",
+    async (format) => {
+      const bindings = [
+        {
+          field: "number" as const,
+          selector: "#number",
+          frameUrl: "https://assets.braintreegateway.com/number",
+        },
+        { field: "expiration" as const, selector: "#expiry", format },
+        { field: "cvc" as const, selector: "#cvc" },
+      ];
+      const output = await fillFromLink.execute(
+        {
+          ...input,
+          pageUrl: "https://shop.example/checkout",
+          fields: bindings,
+        },
+        context
+      );
+      expect(fill).not.toHaveBeenCalled();
+      expect(fillFields).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pageUrl: "https://shop.example/checkout",
+          expectedOrigin: "https://shop.example",
+          fields: [
+            {
+              selector: "#number",
+              frameUrl: bindings[0]?.frameUrl,
+              value: "4242424242424242",
+            },
+            {
+              selector: "#expiry",
+              frameUrl: undefined,
+              value: format === "MM/YY" ? "12/35" : "12/2035",
+            },
+            { selector: "#cvc", frameUrl: undefined, value: "098" },
+          ],
+        })
+      );
+      expect(origin).toHaveBeenCalledWith(
+        expect.objectContaining({ pageUrl: "https://shop.example/checkout" })
+      );
+      expect(token).toHaveBeenCalledWith(linkAuth);
+      expect(output).toEqual(expect.objectContaining({ filledClaims: 3 }));
+      expect(JSON.stringify(output)).not.toMatch(
+        /4242424242424242|098|wallet-token/u
+      );
+    }
+  );
+
+  it("preserves the month claim when binding separate expiration selects", async () => {
+    const request = approvedRequest();
+    fetchMock.mockResolvedValue(
+      Response.json({ ...request, card: { ...request.card, exp_month: 1 } })
+    );
+    await fillFromLink.execute(
+      {
+        ...input,
+        pageUrl: "https://shop.example/checkout",
+        fields: [
+          { field: "number", selector: "#number" },
+          { field: "exp_month", selector: "#month" },
+          { field: "exp_year", selector: "#year" },
+          { field: "cvc", selector: "#cvc" },
+        ],
+      },
+      context
+    );
+    const call = fillFields.mock.calls[0]?.[0];
+    if (!call) throw new Error("Missing bound-field injection.");
+    expect(call.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          selector: "#month",
+          value: "01",
+          token: "cc-exp-month",
+        }),
+        expect.objectContaining({ selector: "#year", value: "2035" }),
+      ])
+    );
+  });
+
+  it("redacts and does not retry an uncertain hosted-field fill", async () => {
+    fillFields.mockRejectedValueOnce(new Error("4242424242424242"));
+    const result = fillFromLink.execute(
+      {
+        ...input,
+        pageUrl: "https://shop.example/checkout",
+        fields: [
+          { field: "number", selector: "#number" },
+          { field: "expiration", selector: "#expiry", format: "MM/YY" },
+          { field: "cvc", selector: "#cvc" },
+        ],
+      },
+      context
+    );
+    await expect(result).rejects.toThrow("could not be confirmed");
+    await expect(result).rejects.not.toHaveProperty("cause");
+    expect(fillFields).toHaveBeenCalledOnce();
+    expect(fill).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -1,6 +1,5 @@
-import Kernel from "@onkernel/sdk";
+import { kernel } from "@agent/subagents/browser-agent/lib/kernel";
 import { z } from "zod";
-import { env } from "@shared/environment";
 import type { AutofillClaim } from "./protocol";
 import {
   classifyNativeLoginControl,
@@ -16,6 +15,8 @@ const targetListSchema = z.object({
   targetInfos: z.array(
     z.object({
       targetId: z.string(),
+      parentId: z.string().optional(),
+      parentFrameId: z.string().optional(),
       type: z.string(),
       url: z.string(),
     })
@@ -33,15 +34,21 @@ type CdpCommandValue =
   | readonly CdpCommandValue[]
   | { readonly [key: string]: CdpCommandValue };
 
+const frameSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  urlFragment: z.string().optional(),
+  parentId: z.string().optional(),
+});
 const frameTreeSchema = z.object({
   frameTree: z.lazy(() => frameTreeNodeSchema),
 });
 const frameTreeNodeSchema: z.ZodType<{
   childFrames?: z.infer<typeof frameTreeNodeSchema>[];
-  frame: { id: string; url: string };
+  frame: z.infer<typeof frameSchema>;
 }> = z.object({
   childFrames: z.array(z.lazy(() => frameTreeNodeSchema)).optional(),
-  frame: z.object({ id: z.string(), url: z.string() }),
+  frame: frameSchema,
 });
 
 const isolatedWorldSchema = z.object({ executionContextId: z.number() });
@@ -123,11 +130,18 @@ type NativeAutofillKind = "address" | "contact" | "login" | "payment";
 export async function currentKernelPageOrigin({
   browserSessionId,
   signal,
+  pageUrl,
 }: {
   readonly browserSessionId: string;
   readonly signal?: AbortSignal;
+  readonly pageUrl?: string;
 }) {
-  return withKernelPage(browserSessionId, signal, async ({ origin }) => origin);
+  return withKernelPage(
+    browserSessionId,
+    signal,
+    async ({ origin }) => origin,
+    pageUrl
+  );
 }
 
 export async function fillWithKernelNativeAutofill({
@@ -136,12 +150,14 @@ export async function fillWithKernelNativeAutofill({
   expectedOrigin,
   kind,
   signal,
+  pageUrl,
 }: {
   readonly browserSessionId: string;
   readonly claims: readonly AutofillClaim[];
   readonly expectedOrigin: string;
   readonly kind: NativeAutofillKind;
   readonly signal?: AbortSignal;
+  readonly pageUrl?: string;
 }) {
   const payload =
     kind === "login" ? undefined : buildNativeAutofillPayload(kind, claims);
@@ -205,9 +221,427 @@ export async function fillWithKernelNativeAutofill({
         "Chromium could not autofill any visible control. Focus a field in the intended card or address form and retry.",
         { cause: lastError }
       );
-    }
+    },
+    pageUrl
   );
 }
+
+const paymentFrameOrigins = new Set([
+  "https://assets.braintreegateway.com",
+  "https://checkout.shopifycs.com",
+  "https://checkout.shopify.com",
+  "https://www.paypal.com",
+  "https://www.sandbox.paypal.com",
+  "https://js.stripe.com",
+  "https://hooks.stripe.com",
+]);
+
+const paymentBindingMatchesSchema = z.array(
+  z.object({
+    bindingIndex: z.number().int().nonnegative(),
+    inputIndex: z.number().int().nonnegative(),
+  })
+);
+
+// Link's approved one-time card can be delivered to recognized payment frames.
+// Saved vault credentials retain their existing same-origin policy above.
+export async function fillKernelPaymentFields({
+  browserSessionId,
+  expectedOrigin,
+  pageUrl,
+  fields,
+  signal,
+}: {
+  readonly browserSessionId: string;
+  readonly expectedOrigin: string;
+  readonly pageUrl: string;
+  readonly fields: readonly {
+    readonly selector: string;
+    readonly frameUrl?: string;
+    readonly value: string;
+    readonly token?: AutofillClaim["token"];
+  }[];
+  readonly signal?: AbortSignal;
+}) {
+  const page = new URL(pageUrl);
+  if (
+    page.protocol !== "https:" ||
+    page.origin !== expectedOrigin ||
+    page.username ||
+    page.password
+  ) {
+    throw new Error(
+      "Payment field bindings require the approved HTTPS checkout."
+    );
+  }
+  return withKernelPage(
+    browserSessionId,
+    signal,
+    async ({
+      connection,
+      origin,
+      sessionId,
+      frameId,
+      frameParents,
+      frameSessions,
+    }) => {
+      if (origin !== expectedOrigin)
+        throw new Error(
+          "The checkout no longer matches the approved merchant."
+        );
+      const topSessionId = sessionId[0];
+      if (!topSessionId) throw new Error("The checkout page is unavailable.");
+      const topWorld = isolatedWorldSchema.parse(
+        await connection.send(
+          "Page.createIsolatedWorld",
+          {
+            frameId,
+            worldName: "open-instinct-link-checkout",
+          },
+          topSessionId
+        )
+      );
+      const frames = (
+        await Promise.all(
+          sessionId.map(async (attachedSessionId) => {
+            const { frameTree } = frameTreeSchema.parse(
+              await connection.send(
+                "Page.getFrameTree",
+                undefined,
+                attachedSessionId
+              )
+            );
+            return flattenFrames(frameTree).map((frame) => ({
+              id: frame.id,
+              url: frame.url,
+              sessionId: attachedSessionId,
+            }));
+          })
+        )
+      ).flat();
+      const matches = (
+        await Promise.all(
+          frames.map(async (frame) => {
+            if (
+              !(await isPaymentFrameVisible(
+                connection,
+                frame.id,
+                frameId,
+                frameParents,
+                frameSessions
+              ))
+            )
+              return [];
+            const world = await connection
+              .send(
+                "Page.createIsolatedWorld",
+                {
+                  frameId: frame.id,
+                  worldName: "open-instinct-link-fields",
+                },
+                frame.sessionId
+              )
+              .catch(() => undefined);
+            const parsedWorld = isolatedWorldSchema.safeParse(world);
+            if (!parsedWorld.success) return [];
+            const executionContextId = parsedWorld.data.executionContextId;
+            const frameOrigin = evaluatedStringSchema.parse(
+              await connection.send(
+                "Runtime.evaluate",
+                {
+                  contextId: executionContextId,
+                  expression: frameOriginExpression,
+                  returnByValue: true,
+                },
+                frame.sessionId
+              )
+            ).result.value;
+            if (
+              frameOrigin !== expectedOrigin &&
+              !paymentFrameOrigins.has(frameOrigin)
+            )
+              return [];
+            const response = evaluatedValueSchema.parse(
+              await connection.send(
+                "Runtime.evaluate",
+                {
+                  contextId: executionContextId,
+                  expression: `(() => {
+          const bindings = ${JSON.stringify(fields.map(({ selector, frameUrl }) => ({ selector, frameUrl })))};
+          const inputs = Array.from(document.querySelectorAll("input, select"));
+          return bindings.flatMap((binding, bindingIndex) => {
+            if (binding.frameUrl && binding.frameUrl !== location.href) return [];
+            return Array.from(document.querySelectorAll(binding.selector)).flatMap((element) => {
+              if (!(element instanceof HTMLInputElement || element instanceof HTMLSelectElement)) return [];
+              if (element.disabled || element.readOnly || element.getClientRects().length === 0) return [];
+              if (element instanceof HTMLInputElement && !["text", "tel", "number", "password"].includes(element.type)) return [];
+              const style = getComputedStyle(element);
+              if (style.display === "none" || style.visibility === "hidden") return [];
+              return [{ bindingIndex, inputIndex: inputs.indexOf(element) }];
+            });
+          });
+        })()`,
+                  returnByValue: true,
+                },
+                frame.sessionId
+              )
+            );
+            return Promise.all(
+              paymentBindingMatchesSchema
+                .parse(response.result.value)
+                .map(async (match) => {
+                  const evaluated = evaluatedObjectSchema.parse(
+                    await connection.send(
+                      "Runtime.evaluate",
+                      {
+                        contextId: executionContextId,
+                        expression: `document.querySelectorAll("input, select").item(${String(match.inputIndex)})`,
+                      },
+                      frame.sessionId
+                    )
+                  );
+                  if (!evaluated.result.objectId)
+                    throw new Error("A payment input disappeared.");
+                  const { node } = describedNodeSchema.parse(
+                    await connection.send(
+                      "DOM.describeNode",
+                      { objectId: evaluated.result.objectId },
+                      frame.sessionId
+                    )
+                  );
+                  return {
+                    bindingIndex: match.bindingIndex,
+                    inputIndex: match.inputIndex,
+                    frameId: frame.id,
+                    frameOrigin,
+                    frameUrl: frame.url,
+                    executionContextId,
+                    sessionId: frame.sessionId,
+                    objectId: evaluated.result.objectId,
+                    backendNodeId: node.backendNodeId,
+                  };
+                })
+            );
+          })
+        )
+      ).flat();
+      try {
+        const controls = fields.map((_field, bindingIndex) => {
+          const candidates = [
+            ...new Map(
+              matches
+                .filter((match) => match.bindingIndex === bindingIndex)
+                .map((match) => [
+                  `${match.frameId}:${String(match.backendNodeId)}`,
+                  match,
+                ])
+            ).values(),
+          ];
+          if (candidates.length !== 1)
+            throw new Error(
+              "Each binding must identify one visible payment input in the approved checkout."
+            );
+          const candidate = candidates[0];
+          if (!candidate) throw new Error("A payment input is unavailable.");
+          return candidate;
+        });
+        if (
+          new Set(
+            controls.map(
+              ({ frameId: id, backendNodeId }) =>
+                `${id}:${String(backendNodeId)}`
+            )
+          ).size !== controls.length
+        ) {
+          throw new Error("Payment bindings must target distinct inputs.");
+        }
+        /* oxlint-disable eslint/no-await-in-loop -- Payment fields are written once in order; any uncertain field stops the operation. */
+        for (const [index, control] of controls.entries()) {
+          const topUrl = evaluatedStringSchema.parse(
+            await connection.send(
+              "Runtime.evaluate",
+              {
+                contextId: topWorld.executionContextId,
+                expression: "location.href",
+                returnByValue: true,
+              },
+              topSessionId
+            )
+          ).result.value;
+          if (topUrl !== pageUrl)
+            throw new Error("The checkout changed before payment filling.");
+          const field = fields[index];
+          if (!field) throw new Error("A payment binding is unavailable.");
+          if (
+            !(await isPaymentFrameVisible(
+              connection,
+              control.frameId,
+              frameId,
+              frameParents,
+              frameSessions
+            ))
+          ) {
+            throw new Error("A payment frame became hidden before filling.");
+          }
+          const result = evaluatedBooleanSchema.parse(
+            await connection.send(
+              "Runtime.callFunctionOn",
+              {
+                objectId: control.objectId,
+                arguments: [
+                  { value: field.value },
+                  { value: control.frameOrigin },
+                  { value: control.frameUrl },
+                  { value: field.selector },
+                  { value: field.token ?? null },
+                ],
+                functionDeclaration: paymentFieldFunction,
+                returnByValue: true,
+              },
+              control.sessionId
+            )
+          );
+          if (!result.result.value)
+            throw new Error(
+              "A payment field rejected filling; inspect the existing checkout before continuing."
+            );
+        }
+        /* oxlint-enable eslint/no-await-in-loop */
+        return { filledClaims: controls.length, origin };
+      } finally {
+        await Promise.all(
+          matches.map(({ objectId, sessionId: attachedSessionId }) =>
+            connection
+              .send("Runtime.releaseObject", { objectId }, attachedSessionId)
+              .catch(() => undefined)
+          )
+        );
+      }
+    },
+    pageUrl
+  );
+}
+
+const frameOwnerSchema = z.object({
+  backendNodeId: z.number().int().positive(),
+});
+const resolvedNodeSchema = z.object({
+  object: z.object({ objectId: z.string() }),
+});
+
+async function isPaymentFrameVisible(
+  connection: CdpConnection,
+  frameId: string,
+  rootFrameId: string,
+  parents: ReadonlyMap<string, string>,
+  sessions: ReadonlyMap<string, string>
+) {
+  const visited = new Set<string>();
+  let current = frameId;
+  /* oxlint-disable eslint/no-await-in-loop -- Each frame owner must be inspected in its parent document before moving up the ancestry chain. */
+  while (current !== rootFrameId) {
+    if (visited.has(current)) return false;
+    visited.add(current);
+    const parent = parents.get(current);
+    const parentSession = parent ? sessions.get(parent) : undefined;
+    if (!parent || !parentSession) return false;
+    const owner = frameOwnerSchema.safeParse(
+      await connection
+        .send("DOM.getFrameOwner", { frameId: current }, parentSession)
+        .catch(() => undefined)
+    );
+    if (!owner.success) return false;
+    const world = isolatedWorldSchema.safeParse(
+      await connection
+        .send(
+          "Page.createIsolatedWorld",
+          {
+            frameId: parent,
+            worldName: "open-instinct-link-frame-visibility",
+          },
+          parentSession
+        )
+        .catch(() => undefined)
+    );
+    if (!world.success) return false;
+    const resolved = resolvedNodeSchema.safeParse(
+      await connection
+        .send(
+          "DOM.resolveNode",
+          {
+            backendNodeId: owner.data.backendNodeId,
+            executionContextId: world.data.executionContextId,
+          },
+          parentSession
+        )
+        .catch(() => undefined)
+    );
+    if (!resolved.success) return false;
+    const objectId = resolved.data.object.objectId;
+    try {
+      const visible = evaluatedBooleanSchema.parse(
+        await connection.send(
+          "Runtime.callFunctionOn",
+          {
+            objectId,
+            functionDeclaration: `function() {
+          const style = getComputedStyle(this);
+          return this.isConnected && this.getClientRects().length > 0 && style.display !== "none" && style.visibility === "visible";
+        }`,
+            returnByValue: true,
+          },
+          parentSession
+        )
+      );
+      if (!visible.result.value) return false;
+    } finally {
+      await connection
+        .send("Runtime.releaseObject", { objectId }, parentSession)
+        .catch(() => undefined);
+    }
+    current = parent;
+  }
+  /* oxlint-enable eslint/no-await-in-loop */
+  return true;
+}
+
+const paymentFieldFunction = `function(value, expectedOrigin, expectedUrl, selector, token) {
+  const eligible = (element) => {
+    if (!(element instanceof HTMLInputElement || element instanceof HTMLSelectElement) || element.disabled || element.readOnly || element.getClientRects().length === 0) return false;
+    if (element instanceof HTMLInputElement && !["text", "tel", "number", "password"].includes(element.type)) return false;
+    const style = getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden";
+  };
+  const valid = () => {
+    if (self.origin !== expectedOrigin || location.href !== expectedUrl || !this.isConnected || !eligible(this)) return false;
+    const candidates = Array.from(document.querySelectorAll(selector)).filter(eligible);
+    return candidates.length === 1 && candidates[0] === this;
+  };
+  if (!valid()) return false;
+  let fillValue = value;
+  if (this instanceof HTMLSelectElement) {
+    const options = Array.from(this.options).filter((option) => !option.disabled);
+    if (!options.some((option) => option.value === value)) {
+      const equivalent = token === "cc-exp-month" ? options.filter((option) => /^[0-9]{1,2}$/.test(option.value) && Number(option.value) === Number(value)) : [];
+      if (equivalent.length !== 1) return false;
+      fillValue = equivalent[0].value;
+    }
+  }
+  this.dataset.vaultSecret = "true";
+  this.style.setProperty("-webkit-text-security", "disc", "important");
+  this.style.setProperty("color", "transparent", "important");
+  this.style.setProperty("text-shadow", "0 0 8px black", "important");
+  this.focus();
+  if (!valid()) return false;
+  const prototype = this instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype, "value").set.call(this, fillValue);
+  this.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertReplacementText", data: fillValue }));
+  this.dispatchEvent(new Event("change", { bubbles: true }));
+  this.blur();
+  if (!this.isConnected) return false;
+  if (this.value === fillValue) return true;
+  return /^[0-9 /-]+$/.test(fillValue) && /^[0-9 /-]+$/.test(this.value) && this.value.replace(/[ /-]/g, "") === fillValue.replace(/[ /-]/g, "");
+}`;
 
 async function fillNativeLoginControls(
   connection: CdpConnection,
@@ -612,20 +1046,35 @@ async function withKernelPage<T>(
     readonly connection: CdpConnection;
     readonly origin: string;
     readonly sessionId: readonly string[];
-  }) => Promise<T>
+    readonly frameId: string;
+    readonly frameParents: ReadonlyMap<string, string>;
+    readonly frameSessions: ReadonlyMap<string, string>;
+  }) => Promise<T>,
+  pageUrl?: string
 ) {
-  const browser = await new Kernel({
-    apiKey: env.KERNEL_API_KEY,
-  }).browsers.retrieve(browserSessionId, {}, { signal });
+  const browser = await kernel.browsers.retrieve(
+    browserSessionId,
+    {},
+    { signal }
+  );
   const connection = await CdpConnection.connect(browser.cdp_ws_url, signal);
 
   try {
     const { targetInfos } = targetListSchema.parse(
       await connection.send("Target.getTargets")
     );
-    const target = targetInfos.findLast(
-      ({ type, url }) => type === "page" && isWebUrl(url)
+    const matchingPages = targetInfos.filter(
+      ({ type, url }) =>
+        type === "page" &&
+        isWebUrl(url) &&
+        (pageUrl === undefined || url === pageUrl)
     );
+    if (pageUrl !== undefined && matchingPages.length !== 1) {
+      throw new Error(
+        "The exact checkout page is no longer uniquely available."
+      );
+    }
+    const target = matchingPages.at(-1);
     if (!target) throw new Error("No active browser tab was found.");
 
     const { sessionId: pageSessionId } = attachedTargetSchema.parse(
@@ -640,21 +1089,55 @@ async function withKernelPage<T>(
       const { frameTree } = frameTreeSchema.parse(
         await connection.send("Page.getFrameTree", undefined, pageSessionId)
       );
-      const frameIds = new Set(flattenFrames(frameTree).map(({ id }) => id));
-      const iframeTargets = targetInfos.filter(
-        ({ targetId, type }) => type === "iframe" && frameIds.has(targetId)
-      );
-      /* oxlint-disable eslint/no-await-in-loop -- CDP target attachment mutates one connection and session IDs are collected in target order. */
-      for (const iframeTarget of iframeTargets) {
-        const attached = attachedTargetSchema.safeParse(
-          await connection
-            .send("Target.attachToTarget", {
-              flatten: true,
-              targetId: iframeTarget.targetId,
-            })
-            .catch(() => undefined)
-        );
-        if (attached.success) sessionIds.push(attached.data.sessionId);
+      const attachedTargets = new Set([target.targetId]);
+      const frameParents = new Map<string, string>();
+      const frameSessions = new Map<string, string>();
+      /* oxlint-disable eslint/no-await-in-loop -- Discover descendant iframe targets through each attached frame tree before operating on the page. */
+      for (let index = 0; index < sessionIds.length; index += 1) {
+        const currentSessionId = sessionIds[index];
+        if (!currentSessionId) continue;
+        const tree =
+          index === 0
+            ? frameTree
+            : frameTreeSchema.parse(
+                await connection.send(
+                  "Page.getFrameTree",
+                  undefined,
+                  currentSessionId
+                )
+              ).frameTree;
+        const frameEntries = flattenFrames(tree);
+        const rootParent = targetInfos.find(
+          ({ targetId }) => targetId === tree.frame.id
+        )?.parentFrameId;
+        for (const entry of frameEntries) {
+          frameSessions.set(entry.id, currentSessionId);
+          const parent =
+            entry.parentId ??
+            (entry.id === tree.frame.id ? rootParent : undefined);
+          if (parent) frameParents.set(entry.id, parent);
+        }
+        const frameIds = new Set(frameEntries.map(({ id }) => id));
+        for (const iframeTarget of targetInfos.filter(
+          ({ targetId, parentId, type }) =>
+            type === "iframe" &&
+            (frameIds.has(targetId) ||
+              (parentId !== undefined && attachedTargets.has(parentId))) &&
+            !attachedTargets.has(targetId)
+        )) {
+          const attached = attachedTargetSchema.safeParse(
+            await connection
+              .send("Target.attachToTarget", {
+                flatten: true,
+                targetId: iframeTarget.targetId,
+              })
+              .catch(() => undefined)
+          );
+          if (attached.success) {
+            attachedTargets.add(iframeTarget.targetId);
+            sessionIds.push(attached.data.sessionId);
+          }
+        }
       }
       /* oxlint-enable eslint/no-await-in-loop */
 
@@ -662,6 +1145,9 @@ async function withKernelPage<T>(
         connection,
         origin: new URL(target.url).origin,
         sessionId: sessionIds,
+        frameId: frameTree.frame.id,
+        frameParents,
+        frameSessions,
       });
     } finally {
       await Promise.all(
@@ -807,11 +1293,18 @@ const cdpResponseSchema = z.object({
 });
 
 function flattenFrames(
-  node: z.infer<typeof frameTreeNodeSchema>
-): { readonly id: string; readonly url: string }[] {
+  node: z.infer<typeof frameTreeNodeSchema>,
+  parentId?: string
+): { readonly id: string; readonly url: string; readonly parentId?: string }[] {
   return [
-    node.frame,
-    ...(node.childFrames ?? []).flatMap((child) => flattenFrames(child)),
+    {
+      id: node.frame.id,
+      url: `${node.frame.url}${node.frame.urlFragment ?? ""}`,
+      parentId: node.frame.parentId ?? parentId,
+    },
+    ...(node.childFrames ?? []).flatMap((child) =>
+      flattenFrames(child, node.frame.id)
+    ),
   ];
 }
 
