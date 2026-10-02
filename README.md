@@ -179,14 +179,14 @@ Gotchas:
   account.
 - Google Contacts search uses a provider-side lazy cache, so a contact created
   moments ago may not appear immediately.
-- Sending email and creating confirmed calendar events always require approval.
-  Calendar events with attendees send Google invitations.
+- User-requested email and calendar operations run without an extra Eve tool
+  approval. Calendar events with attendees send Google invitations.
 
 ## Link wallet
 
 The root agent mounts `@stripe/link-integrations-eve` in
-`agent/extensions/link.ts`. It uses Stripe's bundled wallet tools, skills, and
-approval policies, with per-user authorization through the existing Better Auth
+`agent/extensions/link.ts`. It uses Stripe's bundled wallet tools and skills,
+with per-user authorization through the existing Better Auth
 account. It does not use a shared wallet token.
 
 To enable it, register a Link OAuth client and configure `LINK_CLIENT_ID`,
@@ -211,8 +211,8 @@ and refreshes tokens; disconnection revokes the Link grant before removing it.
 Phone sign-in continues to work after disconnecting a wallet.
 
 Wallet access is available in interactive conversations, not scheduled workers
-or scheduled result delivery. The extension's default Eve approval for creating
-spend requests remains enabled, separately from approval in Link. Its tools can
+or scheduled result delivery. Spend requests run without an extra Eve tool
+approval and always request purchase approval in Link. Its tools can
 return payment credentials into stored Eve tool results; the bundled skills
 instruct the agent not to repeat them in chat. Financial-data tools also require
 the corresponding Link grant scopes; the default grant requests

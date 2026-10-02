@@ -46,16 +46,19 @@ describe("agent instructions", () => {
     expect(selected?.content).toContain("approval");
   });
 
-  it("uses native approval cards instead of prose approval loops", async () => {
+  it("avoids tool approval loops while retaining actual Link purchase approval", async () => {
     const resolve = executionSafety.events["turn.started"];
     expect(resolve).toBeDefined();
     if (!resolve) return;
 
     const selected = await resolve({}, dynamicContext("linq-message"));
     expect(selected?.content).toContain(
-      "Never ask for approval in prose first"
+      "Tools run without a separate Eve approval step"
     );
-    expect(selected?.content).toContain("native approval card");
+    expect(selected?.content).toContain(
+      "Purchases through Link still require approval in Link"
+    );
+    expect(selected?.content).not.toContain("native approval card");
   });
 
   it("treats personal information as recalled context instead of a read tool", async () => {
