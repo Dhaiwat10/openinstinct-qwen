@@ -20,6 +20,8 @@ let processorOrigin = "https://assets.braintreegateway.com";
 let processorFragment = "";
 let changedPage = false;
 let omittedChildFrames = false;
+let hiddenFrame = false;
+let hideAfterWrite = false;
 let ambiguous = false;
 let duplicate = false;
 let failFill = false;
@@ -55,6 +57,7 @@ class BrowserSocket extends EventTarget {
             {
               targetId: "processor-frame",
               parentId: "page-1",
+              parentFrameId: "main-frame",
               type: "iframe",
               url: processorFrame.url,
             },
@@ -151,9 +154,21 @@ class BrowserSocket extends EventTarget {
           },
         };
         break;
+      case "DOM.getFrameOwner":
+        result = { backendNodeId: 100 };
+        break;
+      case "DOM.resolveNode":
+        result = { object: { objectId: "frame-owner" } };
+        break;
       case "Runtime.callFunctionOn":
-        fills += 1;
-        result = { result: { value: !failFill } };
+        if (command.params?.objectId === "frame-owner")
+          result = {
+            result: { value: !hiddenFrame && !(hideAfterWrite && fills > 0) },
+          };
+        else {
+          fills += 1;
+          result = { result: { value: !failFill } };
+        }
         break;
     }
     queueMicrotask(() =>
@@ -182,6 +197,8 @@ beforeEach(() => {
   processorFragment = "";
   changedPage = false;
   omittedChildFrames = false;
+  hiddenFrame = false;
+  hideAfterWrite = false;
   ambiguous = false;
   duplicate = false;
   failFill = false;
@@ -201,7 +218,9 @@ describe("hosted payment field injection", () => {
     const result = await fillKernelPaymentFields(input);
     expect(result).toEqual({ filledClaims: 3, origin: "https://shop.example" });
     const writes = commands.filter(
-      ({ method }) => method === "Runtime.callFunctionOn"
+      ({ method, params }) =>
+        method === "Runtime.callFunctionOn" &&
+        params?.objectId !== "frame-owner"
     );
     expect(writes).toHaveLength(3);
     expect(
@@ -234,13 +253,30 @@ describe("hosted payment field injection", () => {
     processorFragment = "#hosted-config";
     await fillKernelPaymentFields(input);
     const write = commands.find(
-      ({ method }) => method === "Runtime.callFunctionOn"
+      ({ method, params }) =>
+        method === "Runtime.callFunctionOn" &&
+        params?.objectId !== "frame-owner"
     );
     expect(write?.params?.arguments).toEqual(
       expect.arrayContaining([
         { value: "https://assets.braintreegateway.com/fields#hosted-config" },
       ])
     );
+  });
+  it("excludes a hidden containing iframe before passing card values", async () => {
+    hiddenFrame = true;
+    await expect(fillKernelPaymentFields(input)).rejects.toThrow(
+      "one visible payment input"
+    );
+    expect(fills).toBe(0);
+    expect(JSON.stringify(commands)).not.toContain("4242424242424242");
+  });
+  it("rechecks ancestor visibility before each write", async () => {
+    hideAfterWrite = true;
+    await expect(fillKernelPaymentFields(input)).rejects.toThrow(
+      "frame became hidden"
+    );
+    expect(fills).toBe(1);
   });
   it("rejects unrelated frame origins before sending card values", async () => {
     processorOrigin = "https://assets.braintreegateway.com.attacker.example";

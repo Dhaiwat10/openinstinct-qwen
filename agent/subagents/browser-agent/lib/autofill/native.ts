@@ -16,6 +16,7 @@ const targetListSchema = z.object({
     z.object({
       targetId: z.string(),
       parentId: z.string().optional(),
+      parentFrameId: z.string().optional(),
       type: z.string(),
       url: z.string(),
     })
@@ -37,6 +38,7 @@ const frameSchema = z.object({
   id: z.string(),
   url: z.string(),
   urlFragment: z.string().optional(),
+  parentId: z.string().optional(),
 });
 const frameTreeSchema = z.object({
   frameTree: z.lazy(() => frameTreeNodeSchema),
@@ -275,7 +277,14 @@ export async function fillKernelPaymentFields({
   return withKernelPage(
     browserSessionId,
     signal,
-    async ({ connection, origin, sessionId, frameId }) => {
+    async ({
+      connection,
+      origin,
+      sessionId,
+      frameId,
+      frameParents,
+      frameSessions,
+    }) => {
       if (origin !== expectedOrigin)
         throw new Error(
           "The checkout no longer matches the approved merchant."
@@ -313,6 +322,16 @@ export async function fillKernelPaymentFields({
       const matches = (
         await Promise.all(
           frames.map(async (frame) => {
+            if (
+              !(await isPaymentFrameVisible(
+                connection,
+                frame.id,
+                frameId,
+                frameParents,
+                frameSessions
+              ))
+            )
+              return [];
             const world = await connection
               .send(
                 "Page.createIsolatedWorld",
@@ -453,6 +472,17 @@ export async function fillKernelPaymentFields({
             throw new Error("The checkout changed before payment filling.");
           const field = fields[index];
           if (!field) throw new Error("A payment binding is unavailable.");
+          if (
+            !(await isPaymentFrameVisible(
+              connection,
+              control.frameId,
+              frameId,
+              frameParents,
+              frameSessions
+            ))
+          ) {
+            throw new Error("A payment frame became hidden before filling.");
+          }
           const result = evaluatedBooleanSchema.parse(
             await connection.send(
               "Runtime.callFunctionOn",
@@ -490,6 +520,89 @@ export async function fillKernelPaymentFields({
     },
     pageUrl
   );
+}
+
+const frameOwnerSchema = z.object({
+  backendNodeId: z.number().int().positive(),
+});
+const resolvedNodeSchema = z.object({
+  object: z.object({ objectId: z.string() }),
+});
+
+async function isPaymentFrameVisible(
+  connection: CdpConnection,
+  frameId: string,
+  rootFrameId: string,
+  parents: ReadonlyMap<string, string>,
+  sessions: ReadonlyMap<string, string>
+) {
+  const visited = new Set<string>();
+  let current = frameId;
+  /* oxlint-disable eslint/no-await-in-loop -- Each frame owner must be inspected in its parent document before moving up the ancestry chain. */
+  while (current !== rootFrameId) {
+    if (visited.has(current)) return false;
+    visited.add(current);
+    const parent = parents.get(current);
+    const parentSession = parent ? sessions.get(parent) : undefined;
+    if (!parent || !parentSession) return false;
+    const owner = frameOwnerSchema.safeParse(
+      await connection
+        .send("DOM.getFrameOwner", { frameId: current }, parentSession)
+        .catch(() => undefined)
+    );
+    if (!owner.success) return false;
+    const world = isolatedWorldSchema.safeParse(
+      await connection
+        .send(
+          "Page.createIsolatedWorld",
+          {
+            frameId: parent,
+            worldName: "open-instinct-link-frame-visibility",
+          },
+          parentSession
+        )
+        .catch(() => undefined)
+    );
+    if (!world.success) return false;
+    const resolved = resolvedNodeSchema.safeParse(
+      await connection
+        .send(
+          "DOM.resolveNode",
+          {
+            backendNodeId: owner.data.backendNodeId,
+            executionContextId: world.data.executionContextId,
+          },
+          parentSession
+        )
+        .catch(() => undefined)
+    );
+    if (!resolved.success) return false;
+    const objectId = resolved.data.object.objectId;
+    try {
+      const visible = evaluatedBooleanSchema.parse(
+        await connection.send(
+          "Runtime.callFunctionOn",
+          {
+            objectId,
+            functionDeclaration: `function() {
+          const style = getComputedStyle(this);
+          return this.isConnected && this.getClientRects().length > 0 && style.display !== "none" && style.visibility === "visible";
+        }`,
+            returnByValue: true,
+          },
+          parentSession
+        )
+      );
+      if (!visible.result.value) return false;
+    } finally {
+      await connection
+        .send("Runtime.releaseObject", { objectId }, parentSession)
+        .catch(() => undefined);
+    }
+    current = parent;
+  }
+  /* oxlint-enable eslint/no-await-in-loop */
+  return true;
 }
 
 const paymentFieldFunction = `function(value, expectedOrigin, expectedUrl, selector, token) {
@@ -934,6 +1047,8 @@ async function withKernelPage<T>(
     readonly origin: string;
     readonly sessionId: readonly string[];
     readonly frameId: string;
+    readonly frameParents: ReadonlyMap<string, string>;
+    readonly frameSessions: ReadonlyMap<string, string>;
   }) => Promise<T>,
   pageUrl?: string
 ) {
@@ -975,6 +1090,8 @@ async function withKernelPage<T>(
         await connection.send("Page.getFrameTree", undefined, pageSessionId)
       );
       const attachedTargets = new Set([target.targetId]);
+      const frameParents = new Map<string, string>();
+      const frameSessions = new Map<string, string>();
       /* oxlint-disable eslint/no-await-in-loop -- Discover descendant iframe targets through each attached frame tree before operating on the page. */
       for (let index = 0; index < sessionIds.length; index += 1) {
         const currentSessionId = sessionIds[index];
@@ -989,7 +1106,18 @@ async function withKernelPage<T>(
                   currentSessionId
                 )
               ).frameTree;
-        const frameIds = new Set(flattenFrames(tree).map(({ id }) => id));
+        const frameEntries = flattenFrames(tree);
+        const rootParent = targetInfos.find(
+          ({ targetId }) => targetId === tree.frame.id
+        )?.parentFrameId;
+        for (const entry of frameEntries) {
+          frameSessions.set(entry.id, currentSessionId);
+          const parent =
+            entry.parentId ??
+            (entry.id === tree.frame.id ? rootParent : undefined);
+          if (parent) frameParents.set(entry.id, parent);
+        }
+        const frameIds = new Set(frameEntries.map(({ id }) => id));
         for (const iframeTarget of targetInfos.filter(
           ({ targetId, parentId, type }) =>
             type === "iframe" &&
@@ -1018,6 +1146,8 @@ async function withKernelPage<T>(
         origin: new URL(target.url).origin,
         sessionId: sessionIds,
         frameId: frameTree.frame.id,
+        frameParents,
+        frameSessions,
       });
     } finally {
       await Promise.all(
@@ -1163,14 +1293,18 @@ const cdpResponseSchema = z.object({
 });
 
 function flattenFrames(
-  node: z.infer<typeof frameTreeNodeSchema>
-): { readonly id: string; readonly url: string }[] {
+  node: z.infer<typeof frameTreeNodeSchema>,
+  parentId?: string
+): { readonly id: string; readonly url: string; readonly parentId?: string }[] {
   return [
     {
       id: node.frame.id,
       url: `${node.frame.url}${node.frame.urlFragment ?? ""}`,
+      parentId: node.frame.parentId ?? parentId,
     },
-    ...(node.childFrames ?? []).flatMap((child) => flattenFrames(child)),
+    ...(node.childFrames ?? []).flatMap((child) =>
+      flattenFrames(child, node.frame.id)
+    ),
   ];
 }
 
