@@ -23,7 +23,7 @@ The application delivery tests exercise that adapter.
 child's cancellation event. Remove each patch hunk when an upstream release
 passes its corresponding regression without the hunk.
 
-The published `@stripe/link-integrations-eve@0.2.3` declares tool contract v57,
+The published `@stripe/link-integrations-eve@0.2.4` declares tool contract v57,
 which Eve `0.66.3` supports directly. No Link compatibility patch or local
 extension rebuild is needed on this branch. The extension and its Link SDK
 `0.11.0` dependency remain installed from npm.

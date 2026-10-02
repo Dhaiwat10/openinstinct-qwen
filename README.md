@@ -218,7 +218,7 @@ the corresponding Link grant scopes; the default grant requests
 
 ## Eve compatibility
 
-This branch pins Eve `0.66.3` and the published Link extension `0.2.3`.
+This branch pins Eve `0.66.3` and the published Link extension `0.2.4`.
 The extension's tool contract is supported directly, so it needs no compatibility
 rebuild. Browser work uses the background workflow and `agentId` continuation
 APIs supported by this Eve version.
