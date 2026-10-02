@@ -121,9 +121,16 @@ describe("Link wallet integration", () => {
       const denied = request();
       denied.headers.set("origin", "https://attacker.example");
       expect((await POST(denied)).status).toBe(403);
+      const opaqueOrigin = request();
+      opaqueOrigin.headers.set("origin", "null");
+      expect((await POST(opaqueOrigin)).status).toBe(403);
+      const missingOrigin = request();
+      missingOrigin.headers.delete("origin");
+      expect((await POST(missingOrigin)).status).toBe(403);
 
       const started = await POST(request());
       expect(started.status).toBe(303);
+      expect(started.headers.get("referrer-policy")).toBe("no-referrer");
       const destination = new URL(started.headers.get("location") ?? "");
       expect(destination.origin).toBe("https://login.link.com");
       expect(destination.searchParams.get("redirect_uri")).toBe(
