@@ -97,20 +97,27 @@ export default linqChannel({
             .join("\n\n"),
         },
       ];
-      if (event.authorization?.url)
-        parts.push({ type: "link", value: event.authorization.url });
       const apiKey = await credentials.apiKey();
       const client = new LinqAPIV3({ apiKey });
+      const idempotencyKey = `authorization:${session.session.id}:${event.attemptId ?? `${event.turnId}:${event.name}`}`;
       const result = await client.chats.messages.send(chatId, {
         message: {
           parts,
-          idempotency_key: `authorization:${session.session.id}:${event.attemptId ?? `${event.turnId}:${event.name}`}`,
+          idempotency_key: `${idempotencyKey}:prompt`,
         },
       });
       context.state.pendingAuthMessageIds = {
         ...context.state.pendingAuthMessageIds,
         [event.name]: result.message.id,
       };
+      // Linq requires a native link to be the message's only part.
+      if (event.authorization?.url)
+        await client.chats.messages.send(chatId, {
+          message: {
+            parts: [{ type: "link", value: event.authorization.url }],
+            idempotency_key: `${idempotencyKey}:link`,
+          },
+        });
     },
     async "action.result"(event, context, session) {
       const reaction = reactToMessageToolResultSchema.safeParse(event.result);
