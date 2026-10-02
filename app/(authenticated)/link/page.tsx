@@ -6,7 +6,9 @@ import { applicationOrigin } from "@shared/environment/origin";
 
 export const metadata = {
   title: "Link wallet",
-  referrer: "no-referrer" as const,
+  // Native form POSTs need their Origin header for the route's CSRF check.
+  // Cross-origin navigations still receive no referrer.
+  referrer: "same-origin" as const,
 };
 
 export default async function Page({ searchParams }: PageProps<"/link">) {
