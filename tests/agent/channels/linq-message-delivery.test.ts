@@ -177,6 +177,21 @@ interface LinqTestMessage {
 describe("Linq message delivery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    linqChannelCapture.sendNativeMessage
+      .mockReset()
+      .mockImplementation(async (_chatId, body) => {
+        const parts = body.message.parts ?? [];
+        if (parts.some((part) => part.type === "link") && parts.length !== 1)
+          throw new Error("400 link part must be the only part in the message");
+        return {
+          message: {
+            id:
+              parts[0]?.type === "link"
+                ? "native-link-message"
+                : "native-text-message",
+          },
+        };
+      });
     scheduleDeliveryCapture.finalize.mockResolvedValue(true);
     scheduleDeliveryCapture.release.mockResolvedValue(true);
   });
@@ -205,32 +220,46 @@ describe("Linq message delivery", () => {
     expect(post).toHaveBeenCalledExactlyOnceWith({ raw: message });
   });
 
-  it("delivers authorization as native text and a connection link without Markdown conversion", async () => {
+  it("delivers authorization text and its native link as separate messages accepted by Linq", async () => {
     const { context, post } = handlerContext();
     const event = authorizationEvent();
     await handleAuthorizationRequired(event, context, sessionContext());
 
-    expect(
-      linqChannelCapture.sendNativeMessage
-    ).toHaveBeenCalledExactlyOnceWith("chat-1", {
-      message: {
-        idempotency_key: "authorization:session-1:auth-attempt",
-        parts: [
-          {
-            type: "text",
-            value:
-              "Connect your Link wallet to continue.\n\nPurchases require separate approval.",
-          },
-          {
-            type: "link",
-            value:
-              "https://example.com/api/link?attempt=00000000-0000-4000-8000-000000000001",
-          },
-        ],
-      },
-    });
+    expect(linqChannelCapture.sendNativeMessage).toHaveBeenCalledTimes(2);
+    expect(linqChannelCapture.sendNativeMessage).toHaveBeenNthCalledWith(
+      1,
+      "chat-1",
+      {
+        message: {
+          idempotency_key: "authorization:session-1:auth-attempt:prompt",
+          parts: [
+            {
+              type: "text",
+              value:
+                "Connect your Link wallet to continue.\n\nPurchases require separate approval.",
+            },
+          ],
+        },
+      }
+    );
+    expect(linqChannelCapture.sendNativeMessage).toHaveBeenNthCalledWith(
+      2,
+      "chat-1",
+      {
+        message: {
+          idempotency_key: "authorization:session-1:auth-attempt:link",
+          parts: [
+            {
+              type: "link",
+              value:
+                "https://example.com/api/link?attempt=00000000-0000-4000-8000-000000000001",
+            },
+          ],
+        },
+      }
+    );
     expect(context.state.pendingAuthMessageIds).toEqual({
-      link: "native-message-1",
+      link: "native-text-message",
     });
     expect(post).not.toHaveBeenCalled();
   });
@@ -245,8 +274,10 @@ describe("Linq message delivery", () => {
         ([, body]) => body.message.idempotency_key
       )
     ).toEqual([
-      "authorization:session-1:auth-attempt",
-      "authorization:session-1:auth-attempt",
+      "authorization:session-1:auth-attempt:prompt",
+      "authorization:session-1:auth-attempt:link",
+      "authorization:session-1:auth-attempt:prompt",
+      "authorization:session-1:auth-attempt:link",
     ]);
   });
 
