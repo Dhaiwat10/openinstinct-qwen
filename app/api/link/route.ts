@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { APIError } from "better-auth/api";
 import { getAuth } from "@db/services/auth";
 import { getAuthSession } from "@db/services/auth/session";
 import {
@@ -77,8 +78,14 @@ export async function POST(request: Request) {
         status: 303,
         headers: { ...privateHeaders, location: "/link" },
       });
-    } catch {
-      return connectionFailed(input.data.attempt);
+    } catch (error) {
+      return connectionFailed(
+        input.data.attempt,
+        error instanceof APIError &&
+          (error.body?.code === "SESSION_NOT_FRESH" || error.statusCode === 401)
+          ? "reauthentication_required"
+          : "disconnection_failed"
+      );
     }
   }
   return connectLink(session.user.id, request.headers, input.data.attempt);
@@ -114,9 +121,9 @@ async function connectLink(
   }
 }
 
-function connectionFailed(attempt?: string) {
+function connectionFailed(attempt?: string, error = "connection_failed") {
   const destination = new URL("/link", applicationOrigin());
-  destination.searchParams.set("error", "connection_failed");
+  destination.searchParams.set("error", error);
   if (attempt) destination.searchParams.set("attempt", attempt);
   return new Response(null, {
     status: 303,

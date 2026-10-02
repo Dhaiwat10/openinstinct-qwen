@@ -21,6 +21,12 @@ export default async function Page({ searchParams }: PageProps<"/link">) {
   const connected =
     configured &&
     Boolean(await getLinkAccount(scope.userId.slice("better-auth:".length)));
+  const reauthenticationRequired =
+    connected && params.error === "reauthentication_required";
+  const disconnectError =
+    params.error === "reauthentication_required" ||
+    params.error === "disconnection_failed";
+  const returnUrl = attempt.success ? `/link?attempt=${attempt.data}` : "/link";
   return (
     <main className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
       <div className="space-y-2">
@@ -93,9 +99,13 @@ export default async function Page({ searchParams }: PageProps<"/link">) {
       )}
       {params.error && (
         <p role="alert" className="type-supporting text-destructive">
-          The wallet connection could not be completed. Try again, or sign in
-          again before disconnecting. To use a different wallet, disconnect the
-          current wallet first.
+          {disconnectError && !connected
+            ? "Your wallet is no longer connected."
+            : reauthenticationRequired
+              ? "Sign in again before disconnecting your wallet. Your wallet is still connected."
+              : disconnectError
+                ? "Your wallet could not be disconnected. It is still connected. Try again shortly."
+                : "The wallet connection could not be completed. Try again. To use a different wallet, disconnect the current wallet first."}
         </p>
       )}
       {configured && (
@@ -111,13 +121,27 @@ export default async function Page({ searchParams }: PageProps<"/link">) {
               </Button>
             </form>
           )}
-          {connected && (
-            <form action="/api/link" method="post">
-              <input type="hidden" name="operation" value="disconnect" />
-              <Button type="submit" variant="outline">
-                Disconnect wallet
-              </Button>
-            </form>
+          {reauthenticationRequired ? (
+            <Button
+              nativeButton={false}
+              render={
+                <a
+                  aria-label="Sign in again"
+                  href={`/sign-in?reauthenticate=true&callbackUrl=${encodeURIComponent(returnUrl)}`}
+                />
+              }
+            >
+              Sign in again
+            </Button>
+          ) : (
+            connected && (
+              <form action="/api/link" method="post">
+                <input type="hidden" name="operation" value="disconnect" />
+                <Button type="submit" variant="outline">
+                  Disconnect wallet
+                </Button>
+              </form>
+            )
           )}
         </div>
       )}

@@ -333,12 +333,52 @@ describe("Link wallet integration", () => {
         })
       ).rejects.toMatchObject({ cause: { code: "23505" } });
 
-      await expect(link.disconnectLink(userId, headers)).rejects.toThrow(
-        "Unable to revoke Link access"
+      // A valid session older than the freshness window needs a new phone sign-in.
+      await database
+        .update(schema.session)
+        .set({ createdAt: new Date(Date.now() - 25 * 60 * 60_000) })
+        .where(eq(schema.session.userId, userId));
+      expect((await auth.api.getSession({ headers }))?.user.id).toBe(userId);
+      const disconnectRequest = () =>
+        new Request("http://localhost:3000/api/link", {
+          method: "POST",
+          headers,
+          body: new URLSearchParams({ operation: "disconnect" }),
+        });
+      const staleDisconnect = await POST(disconnectRequest());
+      expect(staleDisconnect.status).toBe(303);
+      expect(
+        new URL(staleDisconnect.headers.get("location") ?? "").searchParams.get(
+          "error"
+        )
+      ).toBe("reauthentication_required");
+      expect(revokedTokens).toEqual([]);
+      expect(await link.getLinkAccount(userId)).toBeDefined();
+
+      const reauthenticated = await auth.api.verifyPhoneNumber({
+        body: { phoneNumber: "+12025550123", code: "123456" },
+        headers,
+        returnHeaders: true,
+      });
+      expect(reauthenticated.response.user.id).toBe(userId);
+      expect(reauthenticated.response.token).not.toBe(signedIn.response.token);
+      updateCookies(headers, reauthenticated.headers);
+      const failedDisconnect = await POST(disconnectRequest());
+      expect(failedDisconnect.status).toBe(303);
+      expect(
+        new URL(
+          failedDisconnect.headers.get("location") ?? ""
+        ).searchParams.get("error")
+      ).toBe("disconnection_failed");
+      expect(failedDisconnect.headers.get("cache-control")).toBe("no-store");
+      expect(failedDisconnect.headers.get("referrer-policy")).toBe(
+        "no-referrer"
       );
       expect(await link.getLinkAccount(userId)).toBeDefined();
       revokeSucceeds = true;
-      await link.disconnectLink(userId, headers);
+      const disconnected = await POST(disconnectRequest());
+      expect(disconnected.status).toBe(303);
+      expect(disconnected.headers.get("location")).toBe("/link");
       expect(await link.getLinkAccount(userId)).toBeUndefined();
       expect(revokedTokens).toEqual(["refresh-rotated", "refresh-rotated"]);
       expect((await auth.api.getSession({ headers }))?.user.id).toBe(userId);
