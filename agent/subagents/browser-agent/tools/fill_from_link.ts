@@ -1,0 +1,187 @@
+import {
+  Link,
+  LinkApiError,
+  type LinkOptions,
+  type SpendRequest,
+} from "@stripe/link-sdk";
+import { createLinkTools } from "@stripe/link-sdk/tools";
+import { defineTool } from "eve/tools";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { linkAuth } from "@agent/lib/link-auth";
+import { requireWorkerScope } from "../lib/access";
+import { requireOwnedBrowserSession } from "../lib/owned-browser";
+import {
+  currentKernelPageOrigin,
+  fillWithKernelNativeAutofill,
+} from "../lib/autofill/native";
+
+const inputSchema = z.strictObject({
+  browserSessionId: z.string().trim().min(1).max(500),
+  spendRequestId: z.string().regex(/^[A-Za-z0-9_-]{1,200}$/u),
+  amount: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  currency: z.string().regex(/^[a-z]{3}$/u),
+});
+
+export default defineTool({
+  description:
+    "Fill a standard card checkout with an approved Link spend request. Supply only its ID, an owned browser session, and the total amount in minor units and lowercase currency just observed at checkout. The tool retrieves credentials for the signed-in user's wallet, verifies approval and merchant origin, and fills them server-side. Never provide or read card details. Focus a card field first. This does not submit a purchase; verify the merchant and total again before submitting. Shared Payment Tokens, Link Pay Tokens, and recurring requests are unsupported here.",
+  inputSchema,
+  outputSchema: z.object({
+    success: z.literal(true),
+    spendRequestId: z.string(),
+    origin: z.string(),
+    amount: z.number(),
+    currency: z.string(),
+    filledClaims: z.number().int().nonnegative(),
+  }),
+  async execute(input, context) {
+    const scope = await requireWorkerScope(context);
+    await requireOwnedBrowserSession(scope, input.browserSessionId);
+    // Eve resolves this provider against the current caller, never model input.
+    const { token: accessToken } = await context.getToken(linkAuth);
+    const client = new Link({
+      accessToken,
+      fetch(resource, init) {
+        return fetch(resource, {
+          ...init,
+          cache: "no-store",
+          redirect: "error",
+          signal: AbortSignal.any([
+            context.abortSignal,
+            AbortSignal.timeout(15_000),
+          ]),
+        });
+      },
+    } satisfies LinkOptions);
+
+    let request: SpendRequest | null;
+    try {
+      request = await createLinkTools(client).retrieve_spend_request.execute(
+        { id: input.spendRequestId, include: ["card"] },
+        undefined
+      );
+    } catch (error) {
+      if (error instanceof LinkApiError && error.status === 401) {
+        context.requireAuth(linkAuth);
+      }
+      // oxlint-disable-next-line eslint/preserve-caught-error -- Link errors can contain credentials; never journal their cause.
+      throw new Error(
+        "Could not retrieve this Link request from your wallet. Check its status before retrying."
+      );
+    }
+    if (
+      !request ||
+      request.id !== input.spendRequestId ||
+      request.status !== "approved"
+    ) {
+      throw new Error(
+        "This Link request is not currently approved. Return its ID to the coordinator; do not fill or submit payment."
+      );
+    }
+    if (
+      request.credential_type !== "card" ||
+      request.shared_payment_token ||
+      request.link_pay_token ||
+      request.recurring
+    ) {
+      throw new Error(
+        "This tool supports only one-time Link card requests for standard card forms."
+      );
+    }
+    if (
+      request.amount !== input.amount ||
+      request.currency !== input.currency
+    ) {
+      throw new Error(
+        "The checkout total or currency differs from the approved Link request. Obtain approval for the current purchase before proceeding."
+      );
+    }
+    const merchant = URL.parse(request.merchant_url ?? "");
+    if (
+      merchant?.protocol !== "https:" ||
+      merchant.username ||
+      merchant.password
+    ) {
+      throw new Error(
+        "The Link request has no valid HTTPS merchant URL. Ask the coordinator to correct the request."
+      );
+    }
+    const origin = await currentKernelPageOrigin({
+      browserSessionId: input.browserSessionId,
+      signal: context.abortSignal,
+    });
+    if (origin !== merchant.origin) {
+      throw new Error(
+        "The active checkout does not match the approved Link merchant origin. Do not fill this page."
+      );
+    }
+
+    // Validate the fields required by Chromium without returning validation input.
+    const parsed = z
+      .object({
+        number: z.string().regex(/^\d{12,19}$/u),
+        cvc: z.string().regex(/^\d{3,4}$/u),
+        exp_month: z.number().int().min(1).max(12),
+        exp_year: z.number().int().min(2000).max(2100),
+        billing_address: z.object({ name: z.string().trim().min(1) }),
+        valid_until: z.string().optional(),
+      })
+      .safeParse(request.card);
+    if (!parsed.success) {
+      throw new Error(
+        "Link has not supplied complete card details. Return the request ID to the coordinator; never ask for card details in chat."
+      );
+    }
+    const card = parsed.data;
+    const now = Date.now();
+    const validUntil =
+      card.valid_until === undefined
+        ? undefined
+        : /^\d+(?:\.\d+)?$/u.test(card.valid_until)
+          ? Number(card.valid_until) * 1000
+          : Date.parse(card.valid_until);
+    if (
+      Date.UTC(card.exp_year, card.exp_month) <= now ||
+      (validUntil !== undefined &&
+        (!Number.isFinite(validUntil) || validUntil <= now)) ||
+      (request.expires_at !== undefined && request.expires_at * 1000 <= now)
+    ) {
+      throw new Error(
+        "The Link payment credential or request has expired. Do not fill or submit payment."
+      );
+    }
+    const claims = (
+      [
+        ["cc-name", card.billing_address.name],
+        ["cc-number", card.number],
+        ["cc-exp-month", String(card.exp_month).padStart(2, "0")],
+        ["cc-exp-year", String(card.exp_year)],
+        ["cc-csc", card.cvc],
+      ] as const
+    ).map(([token, value]) => ({ id: randomUUID(), token, value }));
+
+    try {
+      // The existing injector rechecks the origin and masks filled card fields.
+      const result = await fillWithKernelNativeAutofill({
+        browserSessionId: input.browserSessionId,
+        claims,
+        expectedOrigin: origin,
+        kind: "payment",
+        signal: context.abortSignal,
+      });
+      return {
+        success: true as const,
+        spendRequestId: input.spendRequestId,
+        origin: result.origin,
+        amount: input.amount,
+        currency: input.currency,
+        filledClaims: result.filledClaims,
+      };
+    } catch {
+      throw new Error(
+        "Link card autofill could not be confirmed. Check the current checkout without reading payment fields; do not submit or retry blindly."
+      );
+    }
+  },
+});

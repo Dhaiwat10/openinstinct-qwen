@@ -9,6 +9,8 @@ const applicationEnvironment = [
   "*_CONNECTOR_UID",
   "KERNEL_*",
   "LINQ_*",
+  "LINK_*",
+  "STRIPE_PUBLISHABLE_KEY",
   "NODE_ENV",
   "SECRET_ENCRYPTION_KEY",
   "VERCEL_*",

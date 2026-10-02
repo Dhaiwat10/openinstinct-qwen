@@ -31,6 +31,7 @@ describe("compiled channel compatibility", () => {
       const input = {
         channel: { kind: "http" },
         environment: "production",
+        mode: "conversation",
         caller: {
           type: "principal",
           principal: {

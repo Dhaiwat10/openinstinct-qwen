@@ -85,6 +85,9 @@ export const env = createEnv({
     BLOB_STORE_ID: requiredValue.optional(),
     GOOGLE_CONNECTOR_UID: requiredValue.default("google/open-instinct"),
     LINQ_CONNECTOR: requiredValue.optional(),
+    LINK_CLIENT_ID: requiredValue.optional(),
+    LINK_CLIENT_SECRET: requiredValue.optional(),
+    STRIPE_PUBLISHABLE_KEY: requiredValue.optional(),
     LINQ_PHONE_NUMBER: requiredValue
       .refine(
         (value) => isE164PhoneNumber(value),

@@ -4,6 +4,7 @@ import {
   ImageIcon,
   MailIcon,
   MessageSquareIcon,
+  WalletIcon,
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -17,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from "@web/components/ui/alert";
 import { Badge } from "@web/components/ui/badge";
 import { Button } from "@web/components/ui/button";
 import { getGatewayModel } from "@db/services/settings";
+import { linkConfigured } from "@db/services/auth/link";
 import { env } from "@shared/environment";
 import { googleWorkspaceTokenParams } from "@shared/google-workspace/connection";
 import { requireRequestScope } from "@web/auth/request-scope";
@@ -54,7 +56,10 @@ export default async function Page({ searchParams }: PageProps<"/">) {
         linqConfigured={env.LINQ_CONNECTOR !== undefined}
         linqPhoneNumber={env.LINQ_PHONE_NUMBER}
       />
-      <GoogleWorkspaceSection connection={googleWorkspace} />
+      <ConnectionsSection
+        connection={googleWorkspace}
+        linkEnabled={linkConfigured()}
+      />
 
       <WorkspaceSection headingId="connectors-heading" title="Infrastructure">
         <div className="divide-y divide-border/50 border-y border-border/50">
@@ -90,10 +95,12 @@ export default async function Page({ searchParams }: PageProps<"/">) {
   );
 }
 
-function GoogleWorkspaceSection({
+function ConnectionsSection({
   connection,
+  linkEnabled,
 }: {
   readonly connection?: GoogleWorkspaceConnection;
+  readonly linkEnabled: boolean;
 }) {
   const state = connection?.state;
   const description =
@@ -111,6 +118,27 @@ function GoogleWorkspaceSection({
           description={description}
           icon={<MailIcon />}
           label="Google Workspace"
+        />
+        <ConnectorRow
+          action={
+            <Button
+              nativeButton={false}
+              render={<Link href="/link" />}
+              variant="outline"
+              aria-label={
+                linkEnabled ? "Open Link wallet" : "Set up Link wallet"
+              }
+            >
+              {linkEnabled ? "Open" : "Set up"}
+            </Button>
+          }
+          description={
+            linkEnabled
+              ? "Connect or manage your wallet for purchases approved in Link."
+              : "Set up Link to enable wallet connections."
+          }
+          icon={<WalletIcon />}
+          label="Link wallet"
         />
       </div>
     </WorkspaceSection>
