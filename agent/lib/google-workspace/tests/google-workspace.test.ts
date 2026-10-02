@@ -34,7 +34,7 @@ describe("Google Workspace", () => {
     });
   });
 
-  it("maps reversible Gmail actions and protects consequential writes", () => {
+  it("maps reversible Gmail actions and permits requested writes without a tool approval", () => {
     expect(gmailUpdateLabels("archive")).toEqual({
       addLabelIds: [],
       removeLabelIds: ["INBOX"],
@@ -44,8 +44,8 @@ describe("Google Workspace", () => {
       removeLabelIds: [],
     });
     expect(gmailUpdate.approval).toBeUndefined();
-    expect(gmailSend.approval).toBeTypeOf("function");
-    expect(calendarCreateEvent.approval).toBeTypeOf("function");
+    expect(gmailSend.approval).toBeUndefined();
+    expect(calendarCreateEvent.approval).toBeUndefined();
   });
 
   it("does not treat calendar API errors as availability", () => {

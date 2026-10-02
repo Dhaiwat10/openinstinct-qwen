@@ -1,5 +1,4 @@
 import { defineDynamic, defineTool } from "eve/tools";
-import { always } from "eve/tools/approval";
 import { z } from "zod";
 import {
   GMAIL_UPDATE_ACTIONS,
@@ -51,9 +50,8 @@ export const gmailUpdate = defineTool({
 });
 
 export const gmailSend = defineTool({
-  approval: always(),
   description:
-    "Send an email from the authenticated user's Gmail account. This requires user approval.",
+    "Send a user-requested email from the authenticated user's Gmail account.",
   inputSchema: gmailSendSchema,
   async execute(input, ctx) {
     const sent = await sendGmail(ctx, input);

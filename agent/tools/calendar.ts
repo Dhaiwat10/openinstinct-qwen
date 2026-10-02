@@ -1,5 +1,4 @@
 import { defineDynamic, defineTool } from "eve/tools";
-import { always } from "eve/tools/approval";
 import { z } from "zod";
 import {
   calendarEventSchema,
@@ -38,9 +37,8 @@ export const calendarCheckAvailability = defineTool({
 });
 
 export const calendarCreateEvent = defineTool({
-  approval: always(),
   description:
-    "Create a confirmed private Google Calendar event. This requires user approval and sends updates to attendees.",
+    "Create a user-requested confirmed private Google Calendar event and send updates to attendees.",
   inputSchema: calendarEventSchema,
   async execute(input, ctx) {
     return {
