@@ -77,6 +77,11 @@ describe("Eve channel authentication", () => {
     [
       "GET",
       "/eve/v1/connections/:name/callback/:attemptId/:token",
+      "/eve/v1/connections/link__retrieve_user_info__inline_auth/callback/attempt/eve%3Ainbox%3Av1%3Aeve%3Asession%3Awrun_victim%3Ainbox",
+    ],
+    [
+      "GET",
+      "/eve/v1/connections/:name/callback/:attemptId/:token",
       "/eve/v1/connections/google/callback/attempt/wrun_victim:auth",
     ],
     [
@@ -126,11 +131,64 @@ describe("Eve channel authentication", () => {
     expect(isSessionOwnedMock).not.toHaveBeenCalled();
   });
 
+  it("passes an owned versioned inbox callback to Eve's callback handler", async () => {
+    isSessionOwnedMock.mockResolvedValue(true);
+    const route = findRoute(
+      "GET",
+      "/eve/v1/connections/:name/callback/:attemptId/:token"
+    );
+    const token = "eve:inbox:v1:eve:session:wrun_owned:inbox";
+    const response = await route.handler(
+      new Request(
+        `https://assistant.example/eve/v1/connections/link/callback/attempt/${encodeURIComponent(token)}?attempt=link-attempt`
+      ),
+      {
+        ...unexpectedRouteContext(),
+        params: { name: "link", attemptId: "attempt", token },
+      }
+    );
+
+    expect(isSessionOwnedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "better-auth:user-1" }),
+      "wrun_owned"
+    );
+    // No workflow is registered in this test; this response comes from Eve,
+    // after the application's ownership guard has admitted the callback.
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "Connection callback not pending.",
+      ok: false,
+    });
+  });
+
   it("extracts session ids from paths and derived hook tokens", () => {
     expect(sessionIdFromPath("/eve/v1/session/wrun_1/stream")).toBe("wrun_1");
     expect(sessionIdFromPath("/eve/v1/callback/eve:session:wrun_1:inbox")).toBe(
       "wrun_1"
     );
+    expect(
+      sessionIdFromPath(
+        "/eve/v1/callback/eve:inbox:v1:eve:session:wrun_1:inbox"
+      )
+    ).toBe("wrun_1");
+    expect(
+      sessionIdFromPath(
+        "/eve/v1/connections/link__retrieve_user_info__inline_auth/callback/attempt/eve%3Ainbox%3Av1%3Aeve%3Asession%3Awrun_1%3Ainbox"
+      )
+    ).toBe("wrun_1");
+    expect(
+      sessionIdFromPath(
+        "/eve/v1/connections/link/callback/eve:inbox:v1:eve:session:wrun_1:inbox"
+      )
+    ).toBe("wrun_1");
+    expect(
+      sessionIdFromPath(
+        "/eve/v1/callback/eve:inbox:v2:eve:session:wrun_1:inbox"
+      )
+    ).toBeUndefined();
+    expect(
+      sessionIdFromPath("/eve/v1/callback/eve:inbox:v1:unrecognized:wrun_1")
+    ).toBeUndefined();
     expect(
       sessionIdFromPath("/eve/v1/callback/wrun_1:turn-control:3:cancel")
     ).toBe("wrun_1");
