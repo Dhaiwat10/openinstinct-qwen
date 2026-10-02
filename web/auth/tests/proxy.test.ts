@@ -18,6 +18,29 @@ beforeEach(() => {
 });
 
 describe("auth proxy matcher", () => {
+  it.each([
+    "/icon.svg",
+    "/icon.svg?icon.hash.svg",
+    "/apple-icon.png",
+    "/apple-icon.png?apple-icon.hash.png",
+    "/opengraph-image.png",
+    "/opengraph-image.png?opengraph-image.hash.png",
+  ])("does not match public branding asset %s", (url) => {
+    expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(
+      false
+    );
+  });
+
+  it.each([
+    "/icon.svg/private",
+    "/apple-icon.png/private",
+    "/opengraph-image.png/private",
+  ])("continues to match paths beneath a branding filename %s", (url) => {
+    expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(
+      true
+    );
+  });
+
   it("does not match public fonts", () => {
     expect(
       unstable_doesMiddlewareMatch({
