@@ -151,6 +151,11 @@ const handleActionResult = linqChannelCapture.config?.events?.["action.result"];
 if (!handleActionResult) {
   throw new Error("The Linq channel must configure action result delivery.");
 }
+const handleAuthorizationRequired =
+  linqChannelCapture.config?.events?.["authorization.required"];
+if (!handleAuthorizationRequired) {
+  throw new Error("The Linq channel must configure authorization delivery.");
+}
 
 type ActionHandlerParameters = Parameters<typeof handleActionResult>;
 
@@ -198,6 +203,83 @@ describe("Linq message delivery", () => {
     );
 
     expect(post).toHaveBeenCalledExactlyOnceWith({ raw: message });
+  });
+
+  it("delivers authorization as native text and a connection link without Markdown conversion", async () => {
+    const { context, post } = handlerContext();
+    const event = authorizationEvent();
+    await handleAuthorizationRequired(event, context, sessionContext());
+
+    expect(
+      linqChannelCapture.sendNativeMessage
+    ).toHaveBeenCalledExactlyOnceWith("chat-1", {
+      message: {
+        idempotency_key: "authorization:session-1:auth-attempt",
+        parts: [
+          {
+            type: "text",
+            value:
+              "Connect your Link wallet to continue.\n\nPurchases require separate approval.",
+          },
+          {
+            type: "link",
+            value:
+              "https://example.com/api/link?attempt=00000000-0000-4000-8000-000000000001",
+          },
+        ],
+      },
+    });
+    expect(context.state.pendingAuthMessageIds).toEqual({
+      link: "native-message-1",
+    });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("reuses the provider idempotency key when an authorization event is replayed", async () => {
+    const { context } = handlerContext();
+    const event = authorizationEvent();
+    await handleAuthorizationRequired(event, context, sessionContext());
+    await handleAuthorizationRequired(event, context, sessionContext());
+    expect(
+      linqChannelCapture.sendNativeMessage.mock.calls.map(
+        ([, body]) => body.message.idempotency_key
+      )
+    ).toEqual([
+      "authorization:session-1:auth-attempt",
+      "authorization:session-1:auth-attempt",
+    ]);
+  });
+
+  it("delivers Link purchase approval URLs unchanged as native links", async () => {
+    const { context, post } = handlerContext();
+    const approvalUrl =
+      "https://app.link.com/approve/spr_1?approval_token=opaque%2Btoken&source=agent";
+    await handleActionResult(
+      sendMessageResult({ kind: "link", url: approvalUrl }),
+      context,
+      sessionContext()
+    );
+    expect(
+      linqChannelCapture.sendNativeMessage
+    ).toHaveBeenCalledExactlyOnceWith(
+      "chat-1",
+      {
+        message: { parts: [{ type: "link", value: approvalUrl }] },
+      },
+      undefined
+    );
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("keeps delegated authorization challenges out of the root conversation", async () => {
+    const { context, post } = handlerContext();
+    await handleAuthorizationRequired(
+      { ...authorizationEvent(), candidateId: "worker" },
+      context,
+      sessionContext()
+    );
+    expect(linqChannelCapture.sendNativeMessage).not.toHaveBeenCalled();
+    expect(post).not.toHaveBeenCalled();
   });
 
   it("sends a native reply to the current inbound message", async () => {
@@ -921,6 +1003,7 @@ function handlerContext(currentMessageId: string | null = "message-1") {
     streamingEditIntervalMs: 1000,
     thread: {
       id: "linq:dm:chat-1",
+      isDM: true,
       post,
       toJSON: () => ({
         _type: "chat:Thread",
@@ -938,6 +1021,25 @@ function handlerContext(currentMessageId: string | null = "message-1") {
     context,
     post,
     removeReaction,
+  };
+}
+
+function authorizationEvent(): Parameters<
+  NonNullable<typeof handleAuthorizationRequired>
+>[0] {
+  return {
+    name: "link",
+    description: "Authorization required for Link wallet",
+    attemptId: "auth-attempt",
+    authorization: {
+      displayName: "Link wallet",
+      instructions:
+        "Connect your Link wallet to continue.\n\nPurchases require separate approval.",
+      url: "https://example.com/api/link?attempt=00000000-0000-4000-8000-000000000001",
+    },
+    sequence: 0,
+    stepIndex: 0,
+    turnId: "turn-1",
   };
 }
 

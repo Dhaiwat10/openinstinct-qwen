@@ -49,7 +49,7 @@ export const linkAuth = defineInteractiveAuthorization<{ attempt: string }>({
     );
     return {
       challenge: {
-        url: `${applicationOrigin()}/link?attempt=${attempt}`,
+        url: `${applicationOrigin()}/api/link?attempt=${attempt}`,
         instructions: "Connect your Link wallet to continue.",
         expiresAt,
       },

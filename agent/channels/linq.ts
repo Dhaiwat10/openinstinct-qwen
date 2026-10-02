@@ -67,6 +67,51 @@ const credentials = (
 export default linqChannel({
   credentials,
   events: {
+    async "authorization.required"(event, context, session) {
+      const { thread } = context;
+      if (!thread || event.candidateId !== undefined) return;
+      const displayName = event.authorization?.displayName ?? event.name;
+      if (!thread.isDM) {
+        await thread.post({
+          raw: `Connect ${displayName} in a direct message with this agent.`,
+        });
+        return;
+      }
+      const adapter = context.bot.getAdapter("linq");
+      const { chatId, pendingHandle } = adapter.decodeThreadId(thread.id);
+      if (!chatId || pendingHandle)
+        throw new Error(
+          "Authorization delivery requires an existing Linq conversation."
+        );
+      const parts: NonNullable<LinqMessageContent["parts"]> = [
+        {
+          type: "text",
+          value: [
+            event.authorization?.instructions ??
+              `Connect ${displayName} to continue.`,
+            event.authorization?.userCode
+              ? `Code: ${event.authorization.userCode}`
+              : undefined,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+        },
+      ];
+      if (event.authorization?.url)
+        parts.push({ type: "link", value: event.authorization.url });
+      const apiKey = await credentials.apiKey();
+      const client = new LinqAPIV3({ apiKey });
+      const result = await client.chats.messages.send(chatId, {
+        message: {
+          parts,
+          idempotency_key: `authorization:${session.session.id}:${event.attemptId ?? `${event.turnId}:${event.name}`}`,
+        },
+      });
+      context.state.pendingAuthMessageIds = {
+        ...context.state.pendingAuthMessageIds,
+        [event.name]: result.message.id,
+      };
+    },
     async "action.result"(event, context, session) {
       const reaction = reactToMessageToolResultSchema.safeParse(event.result);
       if (event.status === "completed" && reaction.success) {
