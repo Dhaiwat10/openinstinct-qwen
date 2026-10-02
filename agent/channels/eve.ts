@@ -155,13 +155,17 @@ export function sessionIdFromPath(pathname: string) {
   return token ? sessionIdFromHookToken(token) : undefined;
 }
 
-// Hook tokens are derived from the session id: `eve:session:<id>:inbox`,
-// `<id>:turn-control:<n>[:cancel|:inbox]`, and `<id>:auth`.
+// Current inbox tokens wrap `eve:session:<id>:inbox` in `eve:inbox:v1:`.
+// Earlier session, turn-control, and authorization token formats remain valid.
 function sessionIdFromHookToken(token: string) {
+  const inboxPrefix = "eve:inbox:v1:";
+  const subject = token.startsWith(inboxPrefix)
+    ? token.slice(inboxPrefix.length)
+    : token;
   return (
-    /^eve:session:([^:]+):inbox$/.exec(token)?.[1] ??
-    /^([^:]+):turn-control:\d+(?::(?:cancel|inbox))?$/.exec(token)?.[1] ??
-    /^([^:]+):auth$/.exec(token)?.[1]
+    /^eve:session:([^:]+):inbox$/.exec(subject)?.[1] ??
+    /^([^:]+):turn-control:\d+(?::(?:cancel|inbox))?$/.exec(subject)?.[1] ??
+    /^([^:]+):auth$/.exec(subject)?.[1]
   );
 }
 
