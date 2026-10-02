@@ -17,6 +17,7 @@ const commandSchema = z.object({
 });
 const commands: z.infer<typeof commandSchema>[] = [];
 let processorOrigin = "https://assets.braintreegateway.com";
+let processorFragment = "";
 let changedPage = false;
 let omittedChildFrames = false;
 let ambiguous = false;
@@ -40,6 +41,7 @@ class BrowserSocket extends EventTarget {
     const processorFrame = {
       id: "processor-frame",
       url: `${processorOrigin}/fields`,
+      urlFragment: processorFragment,
     };
     switch (command.method) {
       case "Target.getTargets":
@@ -177,6 +179,7 @@ const input = {
 beforeEach(() => {
   commands.length = 0;
   processorOrigin = "https://assets.braintreegateway.com";
+  processorFragment = "";
   changedPage = false;
   omittedChildFrames = false;
   ambiguous = false;
@@ -212,6 +215,7 @@ describe("hosted payment field injection", () => {
       { value: provider },
       { value: `${provider}/fields` },
       { value: "#number" },
+      { value: null },
     ]);
     expect(JSON.stringify(result)).not.toMatch(/4242424242424242|098/u);
     expect(commands.some(({ method }) => method === "Autofill.trigger")).toBe(
@@ -225,6 +229,18 @@ describe("hosted payment field injection", () => {
       origin: "https://shop.example",
     });
     expect(fills).toBe(3);
+  });
+  it("retains hosted frame URL fragments when pinning the field document", async () => {
+    processorFragment = "#hosted-config";
+    await fillKernelPaymentFields(input);
+    const write = commands.find(
+      ({ method }) => method === "Runtime.callFunctionOn"
+    );
+    expect(write?.params?.arguments).toEqual(
+      expect.arrayContaining([
+        { value: "https://assets.braintreegateway.com/fields#hosted-config" },
+      ])
+    );
   });
   it("rejects unrelated frame origins before sending card values", async () => {
     processorOrigin = "https://assets.braintreegateway.com.attacker.example";

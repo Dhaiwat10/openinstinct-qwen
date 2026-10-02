@@ -212,6 +212,38 @@ describe("Link browser bridge", () => {
     }
   );
 
+  it("preserves the month claim when binding separate expiration selects", async () => {
+    const request = approvedRequest();
+    fetchMock.mockResolvedValue(
+      Response.json({ ...request, card: { ...request.card, exp_month: 1 } })
+    );
+    await fillFromLink.execute(
+      {
+        ...input,
+        pageUrl: "https://shop.example/checkout",
+        fields: [
+          { field: "number", selector: "#number" },
+          { field: "exp_month", selector: "#month" },
+          { field: "exp_year", selector: "#year" },
+          { field: "cvc", selector: "#cvc" },
+        ],
+      },
+      context
+    );
+    const call = fillFields.mock.calls[0]?.[0];
+    if (!call) throw new Error("Missing bound-field injection.");
+    expect(call.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          selector: "#month",
+          value: "01",
+          token: "cc-exp-month",
+        }),
+        expect.objectContaining({ selector: "#year", value: "2035" }),
+      ])
+    );
+  });
+
   it("redacts and does not retry an uncertain hosted-field fill", async () => {
     fillFields.mockRejectedValueOnce(new Error("4242424242424242"));
     const result = fillFromLink.execute(

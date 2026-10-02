@@ -33,15 +33,20 @@ type CdpCommandValue =
   | readonly CdpCommandValue[]
   | { readonly [key: string]: CdpCommandValue };
 
+const frameSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  urlFragment: z.string().optional(),
+});
 const frameTreeSchema = z.object({
   frameTree: z.lazy(() => frameTreeNodeSchema),
 });
 const frameTreeNodeSchema: z.ZodType<{
   childFrames?: z.infer<typeof frameTreeNodeSchema>[];
-  frame: { id: string; url: string };
+  frame: z.infer<typeof frameSchema>;
 }> = z.object({
   childFrames: z.array(z.lazy(() => frameTreeNodeSchema)).optional(),
-  frame: z.object({ id: z.string(), url: z.string() }),
+  frame: frameSchema,
 });
 
 const isolatedWorldSchema = z.object({ executionContextId: z.number() });
@@ -252,6 +257,7 @@ export async function fillKernelPaymentFields({
     readonly selector: string;
     readonly frameUrl?: string;
     readonly value: string;
+    readonly token?: AutofillClaim["token"];
   }[];
   readonly signal?: AbortSignal;
 }) {
@@ -457,6 +463,7 @@ export async function fillKernelPaymentFields({
                   { value: control.frameOrigin },
                   { value: control.frameUrl },
                   { value: field.selector },
+                  { value: field.token ?? null },
                 ],
                 functionDeclaration: paymentFieldFunction,
                 returnByValue: true,
@@ -485,7 +492,7 @@ export async function fillKernelPaymentFields({
   );
 }
 
-const paymentFieldFunction = `function(value, expectedOrigin, expectedUrl, selector) {
+const paymentFieldFunction = `function(value, expectedOrigin, expectedUrl, selector, token) {
   const eligible = (element) => {
     if (!(element instanceof HTMLInputElement || element instanceof HTMLSelectElement) || element.disabled || element.readOnly || element.getClientRects().length === 0) return false;
     if (element instanceof HTMLInputElement && !["text", "tel", "number", "password"].includes(element.type)) return false;
@@ -498,19 +505,29 @@ const paymentFieldFunction = `function(value, expectedOrigin, expectedUrl, selec
     return candidates.length === 1 && candidates[0] === this;
   };
   if (!valid()) return false;
-  if (this instanceof HTMLSelectElement && !Array.from(this.options).some((option) => option.value === value)) return false;
+  let fillValue = value;
+  if (this instanceof HTMLSelectElement) {
+    const options = Array.from(this.options).filter((option) => !option.disabled);
+    if (!options.some((option) => option.value === value)) {
+      const equivalent = token === "cc-exp-month" ? options.filter((option) => /^[0-9]{1,2}$/.test(option.value) && Number(option.value) === Number(value)) : [];
+      if (equivalent.length !== 1) return false;
+      fillValue = equivalent[0].value;
+    }
+  }
   this.dataset.vaultSecret = "true";
   this.style.setProperty("-webkit-text-security", "disc", "important");
+  this.style.setProperty("color", "transparent", "important");
+  this.style.setProperty("text-shadow", "0 0 8px black", "important");
   this.focus();
   if (!valid()) return false;
   const prototype = this instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(prototype, "value").set.call(this, value);
-  this.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertReplacementText", data: value }));
+  Object.getOwnPropertyDescriptor(prototype, "value").set.call(this, fillValue);
+  this.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertReplacementText", data: fillValue }));
   this.dispatchEvent(new Event("change", { bubbles: true }));
   this.blur();
   if (!this.isConnected) return false;
-  if (this.value === value) return true;
-  return /^[0-9 /-]+$/.test(value) && /^[0-9 /-]+$/.test(this.value) && this.value.replace(/[ /-]/g, "") === value.replace(/[ /-]/g, "");
+  if (this.value === fillValue) return true;
+  return /^[0-9 /-]+$/.test(fillValue) && /^[0-9 /-]+$/.test(this.value) && this.value.replace(/[ /-]/g, "") === fillValue.replace(/[ /-]/g, "");
 }`;
 
 async function fillNativeLoginControls(
@@ -1149,7 +1166,10 @@ function flattenFrames(
   node: z.infer<typeof frameTreeNodeSchema>
 ): { readonly id: string; readonly url: string }[] {
   return [
-    node.frame,
+    {
+      id: node.frame.id,
+      url: `${node.frame.url}${node.frame.urlFragment ?? ""}`,
+    },
     ...(node.childFrames ?? []).flatMap((child) => flattenFrames(child)),
   ];
 }

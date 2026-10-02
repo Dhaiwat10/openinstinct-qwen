@@ -235,6 +235,8 @@ export default defineTool({
                 selector: binding.selector,
                 frameUrl: binding.frameUrl,
                 value: values[binding.field],
+                token:
+                  binding.field === "exp_month" ? "cc-exp-month" : undefined,
               };
             }),
             signal: context.abortSignal,
