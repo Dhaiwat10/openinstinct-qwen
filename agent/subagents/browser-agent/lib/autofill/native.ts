@@ -191,6 +191,9 @@ export async function fillWithKernelNativeAutofill({
             control.sessionId
           );
         } catch (error) {
+          // A payment fill may have written values before its response failed.
+          // Reconcile the checkout instead of retrying another control.
+          if (kind === "payment") throw error;
           lastError = error;
           continue;
         }
