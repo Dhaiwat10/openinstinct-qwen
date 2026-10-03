@@ -26,14 +26,6 @@ export default defineAgent({
         if (endsWithSuppressedDelivery(ctx.messages)) {
           throw new Error("Stopped a turn that kept sending messages.");
         }
-        // Verifies the Linq replay fix: user messages should not grow within a turn.
-        console.info("[turn-shape]", {
-          lastRole: ctx.messages.at(-1)?.role,
-          messages: ctx.messages.length,
-          sessionId: ctx.session.id,
-          userMessages: ctx.messages.filter(({ role }) => role === "user")
-            .length,
-        });
         return nearModelSelection(await getModelId(scopeFromPrincipal(caller)));
       },
     },
