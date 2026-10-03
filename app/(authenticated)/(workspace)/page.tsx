@@ -17,7 +17,7 @@ import { z } from "zod";
 import { Alert, AlertDescription, AlertTitle } from "@web/components/ui/alert";
 import { Badge } from "@web/components/ui/badge";
 import { Button } from "@web/components/ui/button";
-import { getGatewayModel } from "@db/services/settings";
+import { getModelId } from "@db/services/settings";
 import { linkConfigured } from "@db/services/auth/link";
 import { env } from "@shared/environment";
 import { googleWorkspaceTokenParams } from "@shared/google-workspace/connection";
@@ -28,9 +28,9 @@ import { ModelSelector } from "./_components/model-selector";
 export default async function Page({ searchParams }: PageProps<"/">) {
   const google = (await searchParams).google;
   const scope = await requireRequestScope();
-  const [googleWorkspace, gatewayModel] = await Promise.all([
+  const [googleWorkspace, modelId] = await Promise.all([
     readGoogleWorkspaceConnection(scope.userId),
-    getGatewayModel(scope),
+    getModelId(scope),
   ]);
   const browserReady = true;
   const imageStorageReady = Boolean(
@@ -84,10 +84,10 @@ export default async function Page({ searchParams }: PageProps<"/">) {
             label="Vercel Blob"
           />
           <ConnectorRow
-            action={<ModelSelector modelId={gatewayModel} />}
-            description={gatewayModel}
+            action={<ModelSelector modelId={modelId} />}
+            description={modelId}
             icon={<BotIcon />}
-            label="AI Gateway model"
+            label="NEAR AI verifiable model"
           />
         </div>
       </WorkspaceSection>

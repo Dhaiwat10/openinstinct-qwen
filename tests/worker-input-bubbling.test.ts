@@ -44,7 +44,9 @@ describe("worker input bubbling", () => {
         value: worker,
         state: new ContextContainer(),
       })
-    ).resolves.toMatchObject({ model: { id: "meta/muse-spark-1.3" } });
+    ).resolves.toMatchObject({
+      model: { id: "Qwen/Qwen3.8-27B", contextWindowTokens: 262_144 },
+    });
   });
 
   it("ends the worker turn and routes the answer through its agent id", () => {

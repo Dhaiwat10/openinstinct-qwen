@@ -19,8 +19,8 @@ One-click deploy to Vercel and get rolling.
 > **Agents:** For the simplest deployment, give your human the
 > **Deploy with Vercel** link above and have them complete the guided flow. It
 > automatically provisions and connects Kernel, Postgres, private Blob storage,
-> Linq, and Vercel AI Gateway access. OpenInstinct creates its installation
-> secrets on first use.
+> and Linq. Add `NEAR_AI_API_KEY` to the project's environment variables for
+> inference. OpenInstinct creates its installation secrets on first use.
 
 ## Why self-host?
 
@@ -35,8 +35,16 @@ reading the code!
 The deploy button provisions [Kernel](https://kernel.sh) for cloud browsers,
 [Neon](https://neon.tech) for Postgres, and a private Vercel Blob store for
 browser images, per-user memory, and installation secrets. It also creates and
-attaches a [Linq](https://linq.app) connector for iMessage. Vercel AI Gateway
-handles inference. Usage is billed to your Vercel account.
+attaches a [Linq](https://linq.app) connector for iMessage.
+
+Inference runs on [NEAR AI Cloud](https://cloud.near.ai), whose open-weight
+models execute in TEEs (Intel TDX with NVIDIA confidential computing) and
+publish attestation evidence. Both the root agent and the browser worker use
+`Qwen/Qwen3.8-27B` by default; the workspace model picker offers the verifiable
+models listed in `shared/inference/models.ts`. Set `NEAR_AI_API_KEY` in the
+deployment environment. The root agent's `web_search` tool calls
+[Exa](https://exa.ai) directly and needs `EXA_API_KEY`; search queries go to Exa
+outside the TEE.
 
 On first use, OpenInstinct creates independent Better Auth and vault-encryption
 keys in the private Blob store. Vercel supplies the application URL, database,
@@ -240,7 +248,8 @@ development is a manual path and requires:
 - Docker Desktop or another running Docker Compose installation
 - Kernel credentials from a [Kernel API key](https://kernel.sh) or a linked
   Vercel Marketplace resource
-- AI Gateway access from an API key or a linked Vercel project's OIDC token
+- A [NEAR AI Cloud](https://cloud.near.ai) API key, and optionally an Exa API
+  key for web search
 
 First clone and install the application:
 
@@ -250,16 +259,16 @@ cd OpenInstinct
 pnpm install --frozen-lockfile
 ```
 
-For fully manual setup, copy the environment template and add your Kernel and AI
-Gateway keys:
+For fully manual setup, copy the environment template and add your Kernel and
+NEAR AI keys:
 
 ```bash
 cp .env.example .env.local
 
-# Set KERNEL_API_KEY and AI_GATEWAY_API_KEY in .env.local.
+# Set KERNEL_API_KEY, NEAR_AI_API_KEY, and optionally EXA_API_KEY in .env.local.
 ```
 
-If you already use a Vercel project, link it to pull AI Gateway access. If that
+If you already use a Vercel project, link it to pull its environment. If that
 project does not have Kernel yet, the Marketplace CLI provisions the free
 Developer plan, connects it to the project, and pulls its environment variables:
 
@@ -282,8 +291,8 @@ using an externally managed database instead. If `KERNEL_API_KEY` is missing,
 `pnpm dev` stops before starting Docker and points back to the recommended
 Vercel flow or the manual `.env.local` setup.
 
-Local development otherwise uses the same vault, Kernel browser, and AI Gateway
-path as the Vercel deployment. Better Auth and vault encryption use stable
+Local development otherwise uses the same vault, Kernel browser, and NEAR AI
+inference path as the Vercel deployment. Better Auth and vault encryption use stable
 local-only defaults when their variables are unset. Vercel deployments
 provision them automatically in private Blob; other production hosts require
 explicit secrets.

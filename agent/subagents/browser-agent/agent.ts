@@ -1,5 +1,9 @@
 import { defineAgent, defineDynamic } from "eve";
 import { resolveModeValue } from "@agent/lib/mode";
+import { nearModelIdSelection } from "@agent/lib/near";
+
+// Qwen 3.8 is the verifiable NEAR model that reads screenshots.
+const workerModel = nearModelIdSelection("Qwen/Qwen3.8-27B");
 
 export default defineDynamic({
   build: {
@@ -11,7 +15,7 @@ export default defineDynamic({
         tool: false,
         description:
           "Execute one bounded browser assignment for the root coordinator, including secure vault autofill, transaction preparation, optional durable browser images, human-takeover handoff, cleanup, and a concise verified result.",
-        model: "meta/muse-spark-1.3",
+        ...workerModel,
         reasoning: "low",
         compaction: {
           thresholdPercent: 0.7,

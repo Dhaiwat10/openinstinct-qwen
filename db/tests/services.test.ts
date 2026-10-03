@@ -337,9 +337,14 @@ describe("database services", () => {
       "ciphertext-bob"
     );
 
-    await settings.selectGatewayModel(alice, "openai/test");
-    expect(await settings.getGatewayModel(alice)).toBe("openai/test");
-    expect(await settings.getGatewayModel(bob)).toBe("openai/gpt-6.1-sol-fast");
+    await settings.selectModelId(alice, "Qwen/Qwen3.6-35B-A3B-FP8");
+    expect(await settings.getModelId(alice)).toBe("Qwen/Qwen3.6-35B-A3B-FP8");
+    expect(await settings.getModelId(bob)).toBe("Qwen/Qwen3.8-27B");
+    await pgliteDatabase
+      .update(schema.settings)
+      .set({ value: "openai/gpt-6.1-sol-fast" })
+      .where(eq(schema.settings.workspaceId, alice.workspaceId));
+    expect(await settings.getModelId(alice)).toBe("Qwen/Qwen3.8-27B");
   }, 15_000);
 });
 

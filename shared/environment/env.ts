@@ -64,6 +64,7 @@ export const env = createEnv({
     // Required
     DATABASE_URL: databaseUrlSchema,
     KERNEL_API_KEY: requiredValue,
+    NEAR_AI_API_KEY: requiredValue,
 
     // Optional overrides with local defaults. Vercel deployments provision
     // installation secrets in their connected private Blob store.
@@ -83,6 +84,7 @@ export const env = createEnv({
     // Optional
     BLOB_READ_WRITE_TOKEN: requiredValue.optional(),
     BLOB_STORE_ID: requiredValue.optional(),
+    EXA_API_KEY: requiredValue.optional(),
     GOOGLE_CONNECTOR_UID: requiredValue.default("google/open-instinct"),
     LINQ_CONNECTOR: requiredValue.optional(),
     LINK_CLIENT_ID: requiredValue.optional(),

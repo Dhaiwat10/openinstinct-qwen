@@ -53,7 +53,7 @@ export function ModelSelector({ modelId }: { readonly modelId: string }) {
     );
   }, [catalog.data]);
 
-  const select = (selectedModelId: string) => {
+  const select = (selectedModelId: ModelCatalogItem["id"]) => {
     selectModel.mutate({ modelId: selectedModelId });
   };
 
@@ -77,7 +77,9 @@ export function ModelSelector({ modelId }: { readonly modelId: string }) {
         }
       >
         <ModelSelectorLogo
-          provider={providerLogo(modelId.split("/", 1)[0] ?? modelId)}
+          provider={providerLogo(
+            modelId.split("/", 1)[0]?.toLowerCase() ?? modelId
+          )}
         />
         Choose
         <ChevronsUpDownIcon />
@@ -135,7 +137,6 @@ function providerLogo(provider: string) {
 }
 
 function formatPricing(model: ModelCatalogItem) {
-  if (model.pricing?.input === undefined || model.pricing.output === undefined)
-    return undefined;
+  if (!model.pricing) return undefined;
   return `${priceFormatter.format(model.pricing.input)} / ${priceFormatter.format(model.pricing.output)} per M`;
 }

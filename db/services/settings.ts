@@ -1,33 +1,41 @@
 import { and, eq } from "drizzle-orm";
 import type { AccessScope } from "@shared/identity/access-scope";
+import {
+  type VerifiableModelId,
+  verifiableModel,
+} from "@shared/inference/models";
 import { db, settings } from "@db";
 
-const gatewayModelKey = "gateway_model";
-const defaultGatewayModel = "openai/gpt-6.1-sol-fast";
+// The stored key predates NEAR AI inference; renaming it needs a migration.
+const modelKey = "gateway_model";
 
-async function readGatewayModel(scope: AccessScope) {
+async function readModelId(scope: AccessScope) {
   const rows = await db
     .select({ value: settings.value })
     .from(settings)
     .where(
       and(
         eq(settings.workspaceId, scope.workspaceId),
-        eq(settings.key, gatewayModelKey)
+        eq(settings.key, modelKey)
       )
     )
     .limit(1);
   return rows[0]?.value;
 }
 
-export async function getGatewayModel(scope: AccessScope) {
-  return (await readGatewayModel(scope)) ?? defaultGatewayModel;
+// Ids saved before the NEAR switch, such as AI Gateway ids, fall back to the default.
+export async function getModelId(scope: AccessScope) {
+  return verifiableModel(await readModelId(scope)).id;
 }
 
-export async function selectGatewayModel(scope: AccessScope, modelId: string) {
+export async function selectModelId(
+  scope: AccessScope,
+  modelId: VerifiableModelId
+) {
   await db
     .insert(settings)
     .values({
-      key: gatewayModelKey,
+      key: modelKey,
       value: modelId,
       workspaceId: scope.workspaceId,
     })

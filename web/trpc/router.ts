@@ -1,14 +1,14 @@
-import { gateway } from "ai";
 import { revokeToken, startAuthorization } from "@vercel/connect";
 import { z } from "zod";
 import { listBrowserTraces } from "@db/services/browser-traces";
 import { saveChat } from "@db/services/chats";
 import { replaceUserProfile } from "@db/services/user-profile";
-import { selectGatewayModel } from "@db/services/settings";
+import { selectModelId } from "@db/services/settings";
 import { deleteVaultItem, saveVaultItem } from "@db/services/vault";
 import type { AccessScope } from "@shared/identity/access-scope";
 import { saveChatSchema } from "@shared/chat/schema";
 import { env } from "@shared/environment";
+import { nearApiBaseUrl, verifiableModels } from "@shared/inference/models";
 import {
   googleWorkspaceSubject,
   googleWorkspaceTokenParams,
@@ -49,10 +49,12 @@ export const appRouter = createTRPCRouter({
   },
   settings: {
     selectModel: protectedProcedure
-      .input(z.object({ modelId: z.string().trim().min(1).max(300) }))
-      .mutation(({ ctx, input }) =>
-        selectGatewayModel(ctx.scope, input.modelId)
-      ),
+      .input(
+        z.object({
+          modelId: z.enum(verifiableModels.map((model) => model.id)),
+        })
+      )
+      .mutation(({ ctx, input }) => selectModelId(ctx.scope, input.modelId)),
   },
   userProfile: {
     update: protectedProcedure
@@ -101,41 +103,43 @@ async function startGoogleWorkspaceAuthorization(
   return authorization.url;
 }
 
+const nearModelCatalogSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      pricing: z
+        .object({
+          input: z.number().nonnegative(),
+          output: z.number().nonnegative(),
+        })
+        .optional(),
+    })
+  ),
+});
+
+// NEAR prices are already per million tokens.
 async function readModelCatalog() {
-  const { models } = await gateway.getAvailableModels();
-
-  return z
-    .array(
-      z.object({
-        id: z.string(),
-        name: z.string(),
-        ownedBy: z.string(),
-        pricing: z
-          .object({
-            input: z.number().nonnegative().optional(),
-            output: z.number().nonnegative().optional(),
-          })
-          .optional(),
-      })
-    )
-    .parse(
-      models
-        .filter((model) => model.modelType === "language")
-        .map((model) => ({
-          id: model.id,
-          name: model.name,
-          ownedBy: model.specification.provider,
-          pricing: model.pricing
-            ? {
-                input: perMillion(model.pricing.input),
-                output: perMillion(model.pricing.output),
-              }
-            : undefined,
-        }))
+  const response = await fetch(`${nearApiBaseUrl}/models`, {
+    headers: { authorization: `Bearer ${env.NEAR_AI_API_KEY}` },
+  });
+  if (!response.ok) {
+    throw new Error(
+      `NEAR AI model list failed with HTTP ${String(response.status)}.`
     );
-}
+  }
+  const { data } = nearModelCatalogSchema.parse(await response.json());
 
-function perMillion(value: string) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed * 1_000_000 : undefined;
+  return verifiableModels.flatMap(({ id }) => {
+    const model = data.find((candidate) => candidate.id === id);
+    if (!model) return [];
+    return [
+      {
+        id,
+        name: model.name,
+        ownedBy: id.split("/", 1)[0]?.toLowerCase() ?? "nearai",
+        pricing: model.pricing,
+      },
+    ];
+  });
 }
