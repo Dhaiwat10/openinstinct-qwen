@@ -12,8 +12,10 @@ import {
 
 const workerStartupLimitMs = 5 * 60_000;
 
+// Vercel Hobby allows only daily crons, so due scheduled tasks start once a day
+// at 13:00 UTC. Restore "* * * * *" on Pro for minute-level timing.
 export default defineSchedule({
-  cron: "* * * * *",
+  cron: "0 13 * * *",
   run({ to, waitUntil }) {
     waitUntil(dispatchDueWork(to));
   },
