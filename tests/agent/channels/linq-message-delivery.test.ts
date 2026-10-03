@@ -202,6 +202,10 @@ describe("Linq message delivery", () => {
     );
   });
 
+  it("queues inbound messages instead of steering the active turn", () => {
+    expect(linqChannelCapture.config?.turnPolicy).toBe("queue");
+  });
+
   it("posts send_message output as raw iMessage text", async () => {
     const message = [
       "Still blocked. No order was submitted.",

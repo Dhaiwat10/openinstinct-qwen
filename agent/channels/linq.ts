@@ -66,6 +66,11 @@ const credentials = (
 
 export default linqChannel({
   credentials,
+  // The default "steer" policy injects inbound deliveries into the active turn
+  // between model steps. In production a single "Hi" reached the model as a
+  // fresh message after every reply, and it answered 36 times in one turn.
+  // Queued messages instead wait for the current turn to finish.
+  turnPolicy: "queue",
   events: {
     async "authorization.required"(event, context, session) {
       const { thread } = context;

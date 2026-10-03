@@ -16,6 +16,7 @@ vi.mock("@db/services/settings", () => ({
 }));
 
 import agent from "@agent/agent";
+import { suppressedDeliveryNotice } from "@agent/lib/delivery-guard";
 
 const runId = "00000000-0000-4000-8000-000000000001";
 const oldLeaseToken = "00000000-0000-4000-8000-000000000002";
@@ -49,6 +50,46 @@ describe("root agent model resolution", () => {
       model: { modelId: "Qwen/Qwen3.6-35B-A3B-FP8", provider: "near.chat" },
       modelContextWindowTokens: 262_144,
     });
+  });
+
+  it("stops a turn that keeps calling send_message past its delivery limit", async () => {
+    services.isActive.mockResolvedValue(true);
+    const context = scheduledWorkerContext();
+
+    await expect(
+      agent.model.events["step.started"]?.(
+        {},
+        {
+          ...context,
+          messages: [
+            { role: "user", content: "Hi" },
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  toolCallId: "call-5",
+                  toolName: "send_message",
+                  input: { kind: "message", text: "hi" },
+                },
+              ],
+            },
+            {
+              role: "tool",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-5",
+                  toolName: "send_message",
+                  output: { type: "text", value: suppressedDeliveryNotice },
+                },
+              ],
+            },
+          ],
+        }
+      )
+    ).rejects.toThrow("Stopped a turn that kept sending messages.");
+    expect(services.getModel).not.toHaveBeenCalled();
   });
 
   it("rejects a scheduled worker after its lease is replaced", async () => {
