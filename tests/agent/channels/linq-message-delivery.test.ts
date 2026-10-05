@@ -7,6 +7,7 @@ import type { LinqAPIV3 } from "@linqapp/sdk";
 import type { AdapterPostableMessage } from "chat";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Blob from "@vercel/blob";
+import type * as EveContext from "eve/context";
 import type * as EnvModule from "@shared/environment";
 import { sendMessageOutputSchema } from "@shared/chat/message-delivery";
 import type { AccessScope } from "@shared/identity/access-scope";
@@ -14,6 +15,7 @@ import type {
   finalizeScheduledReport,
   releaseScheduledReport,
 } from "@db/services/scheduled-agent-jobs";
+import { recordDelivery } from "@agent/lib/delivery-guard";
 // oxlint-disable-next-line import/no-unassigned-import -- Loads the production module so the mocked channel factory can capture its configuration.
 import "@agent/channels/linq";
 
@@ -30,6 +32,27 @@ type NativeMessageOptions = Parameters<
 >[2];
 
 const rawMessage = (id: string) => ({ id });
+
+const stateControls = vi.hoisted(() => ({
+  // SAFETY: The array is populated only with zero-argument reset callbacks created by this mock.
+  reset: [] as (() => void)[],
+}));
+
+vi.mock("eve/context", async (importOriginal) => ({
+  ...(await importOriginal<typeof EveContext>()),
+  defineState<T>(_name: string, initial: () => T) {
+    let value = initial();
+    stateControls.reset.push(() => {
+      value = initial();
+    });
+    return {
+      get: () => value,
+      update(update: (current: T) => T) {
+        value = update(value);
+      },
+    };
+  },
+}));
 
 const linqChannelCapture = vi.hoisted(() => ({
   // SAFETY: This mutable test capture stores only API keys from the typed SDK constructor mock.
@@ -158,6 +181,11 @@ if (!handleAuthorizationRequired) {
 }
 
 type ActionHandlerParameters = Parameters<typeof handleActionResult>;
+const handleMessageCompleted =
+  linqChannelCapture.config?.events?.["message.completed"] ??
+  (() => {
+    throw new Error("The Linq channel must handle completed messages.");
+  })();
 
 interface LinqTestMessage {
   readonly attachments?: readonly {
@@ -177,6 +205,7 @@ interface LinqTestMessage {
 describe("Linq message delivery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    for (const reset of stateControls.reset) reset();
     linqChannelCapture.sendNativeMessage
       .mockReset()
       .mockImplementation(async (_chatId, body) => {
@@ -204,6 +233,80 @@ describe("Linq message delivery", () => {
 
   it("queues inbound messages instead of steering the active turn", () => {
     expect(linqChannelCapture.config?.turnPolicy).toBe("queue");
+  });
+
+  it("posts the model's final text when a turn ends without delivering", async () => {
+    const { context, post } = handlerContext();
+
+    await handleMessageCompleted(
+      messageCompletedEvent("stop", "hey! what's up\n\nDELIVERY_COMPLETE"),
+      context,
+      sessionContext()
+    );
+
+    expect(post).toHaveBeenCalledExactlyOnceWith({ raw: "hey! what's up" });
+  });
+
+  it("apologizes instead of staying silent when a turn ends with no reply", async () => {
+    const { context, post } = handlerContext();
+
+    await handleMessageCompleted(
+      messageCompletedEvent("stop", "DELIVERY_COMPLETE"),
+      context,
+      sessionContext()
+    );
+
+    expect(post).toHaveBeenCalledExactlyOnceWith({
+      raw: "Sorry, I couldn't finish that one. Could you ask again?",
+    });
+  });
+
+  it("does not add text after a turn that already delivered a reply", async () => {
+    const { context, post } = handlerContext();
+    recordDelivery("turn-1");
+
+    await handleMessageCompleted(
+      messageCompletedEvent("stop", "DELIVERY_COMPLETE"),
+      context,
+      sessionContext()
+    );
+
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet on a later turn about a message that was already answered", async () => {
+    const answered = handlerContext();
+    recordDelivery("turn-1");
+    await handleMessageCompleted(
+      messageCompletedEvent("stop", "DELIVERY_COMPLETE"),
+      answered.context,
+      sessionContext()
+    );
+    const backgroundReport = handlerContext();
+    const laterTurn = sessionContext();
+
+    await handleMessageCompleted(
+      messageCompletedEvent("stop", ""),
+      backgroundReport.context,
+      {
+        ...laterTurn,
+        session: { ...laterTurn.session, turn: { id: "turn-2", sequence: 1 } },
+      }
+    );
+
+    expect(backgroundReport.post).not.toHaveBeenCalled();
+  });
+
+  it("waits for the final step before falling back", async () => {
+    const { context, post } = handlerContext();
+
+    await handleMessageCompleted(
+      messageCompletedEvent("tool-calls", "Searching..."),
+      context,
+      sessionContext()
+    );
+
+    expect(post).not.toHaveBeenCalled();
   });
 
   it("posts send_message output as raw iMessage text", async () => {
@@ -1056,6 +1159,19 @@ function handlerContext(currentMessageId: string | null = "message-1") {
     context,
     post,
     removeReaction,
+  };
+}
+
+function messageCompletedEvent(
+  finishReason: "stop" | "tool-calls",
+  message: string
+): Parameters<typeof handleMessageCompleted>[0] {
+  return {
+    finishReason,
+    message,
+    sequence: 0,
+    stepIndex: 0,
+    turnId: "turn-1",
   };
 }
 

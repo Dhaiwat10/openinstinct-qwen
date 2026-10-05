@@ -22,6 +22,11 @@ import {
 } from "../lib/linq-image-artifact/markdown";
 import { env } from "@shared/environment";
 import {
+  deliveriesInTurn,
+  isMessageAnswered,
+  markMessageAnswered,
+} from "@agent/lib/delivery-guard";
+import {
   finalizeScheduledReportDelivery,
   releaseScheduledReportDelivery,
   scheduledReportFromSession,
@@ -38,6 +43,9 @@ const unavailableReplyTargetSchema = z.object({
 type LinqMessageContent = Parameters<
   LinqAPIV3["chats"]["messages"]["send"]
 >[1]["message"];
+
+const unansweredTurnNotice =
+  "Sorry, I couldn't finish that one. Could you ask again?";
 
 const trustedForwarder = vercelOidc();
 
@@ -322,12 +330,29 @@ export default linqChannel({
         await finalizeScheduledReportDelivery(session);
       }
     },
-    async "message.completed"(event, _context, session) {
+    async "message.completed"(event, context, session) {
       if (event.finishReason === "tool-calls") return;
       const report = scheduledReportFromSession(session);
       if (report) {
         await finalizeScheduledReportDelivery(session, "suppressed");
+        return;
       }
+      const { thread } = context;
+      const messageId = thread?.toJSON().currentMessage?.id;
+      if (!thread || !messageId) return;
+      if (deliveriesInTurn(session.session.turn.id) > 0) {
+        markMessageAnswered(messageId);
+        return;
+      }
+      if (isMessageAnswered(messageId)) return;
+      // Assistant text never reaches Linq on its own, and the model sometimes
+      // answers in text instead of calling send_message, or ends a turn with
+      // nothing at all. Never leave a user message without a reply.
+      const text = (event.message ?? "")
+        .replaceAll("DELIVERY_COMPLETE", "")
+        .trim();
+      await thread.post({ raw: text || unansweredTurnNotice });
+      markMessageAnswered(messageId);
     },
     async "session.completed"(_event, _context, session) {
       const report = scheduledReportFromSession(session);

@@ -1,9 +1,14 @@
 import type { DynamicResolveContext } from "eve/instructions";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import executionSafety from "@agent/instructions/10-execution-safety";
 import roleInstructions from "@agent/instructions/20-role";
 import workerCoordination from "@agent/instructions/25-worker-coordination";
 import messageStyle from "@agent/instructions/30-message-style";
+import currentTime from "@agent/instructions/40-current-time";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("agent instructions", () => {
   it.each([
@@ -121,6 +126,22 @@ describe("agent instructions", () => {
     );
     expect(selected?.content).toContain("isolated background session");
   });
+
+  it.each(["linq", "scheduled-worker", "scheduled-result"])(
+    "states the current date for %s turns",
+    async (role) => {
+      vi.useFakeTimers({ now: new Date("2026-10-05T18:39:00Z") });
+      const resolve = currentTime.events["turn.started"];
+      expect(resolve).toBeDefined();
+      if (!resolve) return;
+
+      const selected = await resolve({}, dynamicContext(role));
+      expect(selected?.content).toContain(
+        "The current date and time is Monday, October 5, 2026 at 6:39 PM UTC."
+      );
+      expect(selected?.content).toContain("check with web_search");
+    }
+  );
 });
 
 function dynamicContext(
