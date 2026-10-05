@@ -14,10 +14,41 @@ const turnDeliveries = defineState<{ turnId: string; count: number }>(
 );
 
 export function admitDelivery(turnId: string) {
+  return recordDelivery(turnId) <= maxDeliveriesPerTurn;
+}
+
+export function recordDelivery(turnId: string) {
   const current = turnDeliveries.get();
   const count = current.turnId === turnId ? current.count + 1 : 1;
   turnDeliveries.update(() => ({ turnId, count }));
-  return count <= maxDeliveriesPerTurn;
+  return count;
+}
+
+export function deliveriesInTurn(turnId: string) {
+  const current = turnDeliveries.get();
+  return current.turnId === turnId ? current.count : 0;
+}
+
+// Inbound message ids that already received a reply, so a later turn on the
+// same message, such as a background task report, is not mistaken for an
+// unanswered one.
+const maximumAnsweredMessages = 50;
+
+const answeredMessages = defineState<string[]>(
+  "open-instinct.answered-messages",
+  () => []
+);
+
+export function markMessageAnswered(messageId: string) {
+  answeredMessages.update((current) =>
+    [...current.filter((id) => id !== messageId), messageId].slice(
+      -maximumAnsweredMessages
+    )
+  );
+}
+
+export function isMessageAnswered(messageId: string) {
+  return answeredMessages.get().includes(messageId);
 }
 
 // Model resolvers do not receive the turn id, so detect a runaway from the

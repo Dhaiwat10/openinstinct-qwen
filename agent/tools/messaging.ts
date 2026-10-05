@@ -5,7 +5,11 @@ import {
   reactToMessageOutputSchema,
 } from "@shared/chat/reaction";
 import { sendMessageOutputSchema } from "@shared/chat/message-delivery";
-import { admitDelivery, suppressedDeliveryNotice } from "../lib/delivery-guard";
+import {
+  admitDelivery,
+  recordDelivery,
+  suppressedDeliveryNotice,
+} from "../lib/delivery-guard";
 
 function defineSendMessage() {
   return defineTool({
@@ -41,7 +45,8 @@ export default defineDynamic({
         inputSchema: isLinq
           ? reactToMessageOutputSchema
           : addReactionToMessageOutputSchema,
-        execute(reaction) {
+        execute(reaction, ctx) {
+          recordDelivery(ctx.session.turn.id);
           return reaction;
         },
         toModelOutput() {
