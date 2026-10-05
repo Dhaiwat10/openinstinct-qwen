@@ -43,8 +43,8 @@ publish attestation evidence. Both the root agent and the browser worker use
 `Qwen/Qwen3.8-27B` by default; the workspace model picker offers the verifiable
 models listed in `shared/inference/models.ts`. Set `NEAR_AI_API_KEY` in the
 deployment environment. The root agent's `web_search` tool calls
-[Exa](https://exa.ai) directly and needs `EXA_API_KEY`; search queries go to Exa
-outside the TEE.
+[Tavily](https://tavily.com) directly and needs `TAVILY_API_KEY`; search queries
+go to Tavily outside the TEE.
 
 On first use, OpenInstinct creates independent Better Auth and vault-encryption
 keys in the private Blob store. Vercel supplies the application URL, database,
@@ -248,7 +248,7 @@ development is a manual path and requires:
 - Docker Desktop or another running Docker Compose installation
 - Kernel credentials from a [Kernel API key](https://kernel.sh) or a linked
   Vercel Marketplace resource
-- A [NEAR AI Cloud](https://cloud.near.ai) API key, and optionally an Exa API
+- A [NEAR AI Cloud](https://cloud.near.ai) API key, and optionally a Tavily API
   key for web search
 
 First clone and install the application:
@@ -265,7 +265,7 @@ NEAR AI keys:
 ```bash
 cp .env.example .env.local
 
-# Set KERNEL_API_KEY, NEAR_AI_API_KEY, and optionally EXA_API_KEY in .env.local.
+# Set KERNEL_API_KEY, NEAR_AI_API_KEY, and optionally TAVILY_API_KEY in .env.local.
 ```
 
 If you already use a Vercel project, link it to pull its environment. If that
