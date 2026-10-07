@@ -32,6 +32,25 @@ describe("environment", () => {
     expect(env).toMatchObject(requiredEnvironment);
   });
 
+  it("parses ALLOWED_PHONE_NUMBERS into a list of E.164 numbers", async () => {
+    vi.stubEnv("ALLOWED_PHONE_NUMBERS", " +919999900001, +12025550123 ,");
+
+    const { env } = await import("@shared/environment");
+
+    expect(env.ALLOWED_PHONE_NUMBERS).toEqual([
+      "+919999900001",
+      "+12025550123",
+    ]);
+  });
+
+  it("rejects an ALLOWED_PHONE_NUMBERS entry that is not E.164", async () => {
+    vi.stubEnv("ALLOWED_PHONE_NUMBERS", "+919999900001,9999900001");
+
+    await expect(import("@shared/environment")).rejects.toThrow(
+      "Invalid environment variables"
+    );
+  });
+
   it("provides the Google connector default without enabling Linq", async () => {
     vi.stubEnv("GOOGLE_CONNECTOR_UID", "");
 
