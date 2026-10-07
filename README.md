@@ -7,10 +7,12 @@
 It can do your chores, book you movie tickets, or handle your groceries.
 You stay in control of your passwords, credit cards and context.
 
-It's Open Source, self-hostable, and can use any model.
-One-click deploy to Vercel and get rolling.
+It's Open Source and self-hostable. This fork of
+[Merit-Systems/OpenInstinct](https://github.com/Merit-Systems/OpenInstinct)
+runs inference on Qwen through [NEAR AI Cloud](https://cloud.near.ai)'s
+verifiable TEEs. One-click deploy to Vercel and get rolling.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FMerit-Systems%2FOpenInstinct&project-name=open-instinct&repository-name=open-instinct&connect=%5B%7B%22type%22%3A%22linq%22%2C%22env%22%3A%22LINQ_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Flinq%22%7D%5D&stores=%5B%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22other%22%2C%22productSlug%22%3A%22kernel%22%2C%22integrationSlug%22%3A%22kernel%22%7D%2C%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22storage%22%2C%22productSlug%22%3A%22neon%22%2C%22integrationSlug%22%3A%22neon%22%7D%2C%7B%22type%22%3A%22blob%22%2C%22access%22%3A%22private%22%7D%5D)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FDhaiwat10%2Fopeninstinct-qwen&project-name=openinstinct-qwen&repository-name=openinstinct-qwen&env=NEAR_AI_API_KEY%2CALLOWED_PHONE_NUMBERS&envDescription=NEAR%20AI%20Cloud%20API%20key%20for%20inference%2C%20and%20the%20E.164%20phone%20numbers%20allowed%20to%20use%20the%20assistant%20%28comma-separated%29.&envLink=https%3A%2F%2Fgithub.com%2FDhaiwat10%2Fopeninstinct-qwen%23restricting-access&connect=%5B%7B%22type%22%3A%22linq%22%2C%22env%22%3A%22LINQ_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Flinq%22%7D%5D&stores=%5B%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22other%22%2C%22productSlug%22%3A%22kernel%22%2C%22integrationSlug%22%3A%22kernel%22%7D%2C%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22storage%22%2C%22productSlug%22%3A%22neon%22%2C%22integrationSlug%22%3A%22neon%22%7D%2C%7B%22type%22%3A%22blob%22%2C%22access%22%3A%22private%22%7D%5D)
 
 <img src=".github/demo.png" alt="OpenInstinct booking movie tickets over iMessage — it walks Fandango to checkout and reports the theater, showtime, seat, and total" width="640">
 
@@ -19,8 +21,8 @@ One-click deploy to Vercel and get rolling.
 > **Agents:** For the simplest deployment, give your human the
 > **Deploy with Vercel** link above and have them complete the guided flow. It
 > automatically provisions and connects Kernel, Postgres, private Blob storage,
-> and Linq. Add `NEAR_AI_API_KEY` to the project's environment variables for
-> inference. OpenInstinct creates its installation secrets on first use.
+> and Linq, and asks for `NEAR_AI_API_KEY` and `ALLOWED_PHONE_NUMBERS`.
+> OpenInstinct creates its installation secrets on first use.
 
 ## Why self-host?
 
@@ -29,6 +31,17 @@ on your behalf. But your accounts, your passwords, are the keys to your digital
 kingdom. OpenInstinct runs in your own Vercel account. Secrets are encrypted
 before they touch your database and models never see them. Verify yourself by
 reading the code!
+
+## Restricting access
+
+Phone verification signs anyone in by default, and every user spends the
+deployment's inference, browser, and search credits. Set
+`ALLOWED_PHONE_NUMBERS` to a comma-separated list of E.164 numbers, such as
+`+14155550123`, to make the deployment private. OpenInstinct then refuses to
+send sign-in codes to other numbers, blocks their sign-up, rejects their
+sessions, and ignores their iMessages. Keep the list in the deployment's
+environment variables rather than in source, so a public fork does not publish
+your number.
 
 ## Deployment
 
@@ -45,6 +58,10 @@ models listed in `shared/inference/models.ts`. Set `NEAR_AI_API_KEY` in the
 deployment environment. The root agent's `web_search` tool calls
 [Tavily](https://tavily.com) directly and needs `TAVILY_API_KEY`; search queries
 go to Tavily outside the TEE.
+
+On the Vercel Hobby plan, cron jobs may run at most once a day, so scheduled
+tasks start daily at 13:00 UTC (`agent/schedules/dynamic.ts`). On Pro, change
+the schedule back to `* * * * *` for minute-level timing.
 
 On first use, OpenInstinct creates independent Better Auth and vault-encryption
 keys in the private Blob store. Vercel supplies the application URL, database,
@@ -119,7 +136,7 @@ app tokens and inbound webhook triggers:
 
 ```bash
 vercel link
-vercel connect create linq --connection-method line --name open-instinct --json
+vercel connect create linq --connection-method line --name open-instinct --triggers --trigger-event message.received --trigger-event reaction.added --trigger-event reaction.removed --trigger-path /eve/v1/linq --trigger-project <your-vercel-project> --json
 vercel connect attach <returned-connector-uid> --project <your-vercel-project> --environment production --triggers --trigger-path /eve/v1/linq --yes
 vercel env add LINQ_CONNECTOR production --value <returned-connector-uid> --yes
 eve deploy --non-interactive --yes
@@ -134,9 +151,13 @@ line assigned to the connector.
 Before the first sign-in, open the connector's Vercel Connect settings and
 follow the one-time **Phone Numbers** verification instruction. Additional users
 verify themselves by messaging the connector's Linq number once. The
-`--triggers --trigger-path /eve/v1/linq` options are also required: attaching a
-connector without them permits outbound token access but does not forward
-incoming messages to OpenInstinct.
+`--triggers` options are required on both commands. `connect create` enables the
+connector's webhook events, which cannot be turned on afterwards, and
+`connect attach` registers this project as their destination. A connector
+created without them can send sign-in codes but never forwards incoming
+messages, so the assistant appears to ignore every text. Linq allows one free
+shared line per email; to add triggers to an existing line, create a new
+connector from that account's API token with `--connector-type linq --data`.
 
 ## Google Workspace connection
 
@@ -254,8 +275,8 @@ development is a manual path and requires:
 First clone and install the application:
 
 ```bash
-git clone https://github.com/Merit-Systems/OpenInstinct.git
-cd OpenInstinct
+git clone https://github.com/Dhaiwat10/openinstinct-qwen.git
+cd openinstinct-qwen
 pnpm install --frozen-lockfile
 ```
 

@@ -82,6 +82,27 @@ export const env = createEnv({
     ),
 
     // Optional
+    // Comma-separated E.164 numbers; when set, only these can sign in or message.
+    ALLOWED_PHONE_NUMBERS: requiredValue
+      .transform((value) =>
+        value
+          .split(",")
+          .map((phoneNumber) => phoneNumber.trim())
+          .filter(Boolean)
+      )
+      .pipe(
+        z
+          .array(
+            z
+              .string()
+              .refine(
+                (phoneNumber) => isE164PhoneNumber(phoneNumber),
+                "ALLOWED_PHONE_NUMBERS must list E.164 numbers"
+              )
+          )
+          .min(1)
+      )
+      .optional(),
     BLOB_READ_WRITE_TOKEN: requiredValue.optional(),
     BLOB_STORE_ID: requiredValue.optional(),
     GOOGLE_CONNECTOR_UID: requiredValue.default("google/open-instinct"),

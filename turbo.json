@@ -4,6 +4,7 @@
     "build:app": {
       "dependsOn": ["^build:app"],
       "env": [
+        "ALLOWED_PHONE_NUMBERS",
         "BETTER_AUTH_*",
         "BLOB_*",
         "DATABASE_URL",
@@ -24,6 +25,7 @@
     "build:vercel": {
       "dependsOn": ["db:migrate"],
       "env": [
+        "ALLOWED_PHONE_NUMBERS",
         "BETTER_AUTH_*",
         "BLOB_*",
         "DATABASE_URL",
@@ -48,6 +50,7 @@
     "dev:app": {
       "cache": false,
       "passThroughEnv": [
+        "ALLOWED_PHONE_NUMBERS",
         "BETTER_AUTH_*",
         "BLOB_*",
         "DATABASE_URL",
@@ -79,6 +82,7 @@
     "start:app": {
       "cache": false,
       "passThroughEnv": [
+        "ALLOWED_PHONE_NUMBERS",
         "BETTER_AUTH_*",
         "BLOB_*",
         "DATABASE_URL",

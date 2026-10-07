@@ -3,15 +3,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getAuthSession } from "@db/services/auth/session";
 import { authSessionFor } from "@tests/helpers/auth-session";
 
-const mocks = vi.hoisted(() => ({ getAuth: vi.fn(), getSession: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getAuth: vi.fn(),
+  getSession: vi.fn(),
+  isPhoneNumberAllowed: vi.fn(),
+}));
 
 vi.mock("@db/services/auth", () => ({ getAuth: mocks.getAuth }));
+vi.mock("@shared/identity/phone-allowlist", () => ({
+  isPhoneNumberAllowed: mocks.isPhoneNumberAllowed,
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getAuth.mockResolvedValue({
     api: { getSession: mocks.getSession },
   });
+  mocks.isPhoneNumberAllowed.mockReturnValue(true);
 });
 
 describe("auth session", () => {
@@ -46,5 +54,21 @@ describe("auth session", () => {
     await expect(getAuthSession(headers)).resolves.toBeNull();
     await expect(getAuthSession(headers)).resolves.toBeNull();
     await expect(getAuthSession(headers)).resolves.toBeNull();
+  });
+
+  it("rejects a verified session whose number is not on the allowlist", async () => {
+    mocks.getSession.mockResolvedValue(
+      authSessionFor({
+        id: "user-1",
+        phoneNumber: "+12025550123",
+        phoneNumberVerified: true,
+      })
+    );
+    mocks.isPhoneNumberAllowed.mockReturnValue(false);
+
+    await expect(getAuthSession(new Headers())).resolves.toBeNull();
+    expect(mocks.isPhoneNumberAllowed).toHaveBeenCalledExactlyOnceWith(
+      "+12025550123"
+    );
   });
 });

@@ -20,7 +20,11 @@ vi.mock("@shared/environment", async (importOriginal) => {
   const original = await importOriginal<typeof EnvModule>();
   return {
     ...original,
-    env: { ...original.env, LINQ_CONNECTOR: "linq/test" },
+    env: {
+      ...original.env,
+      ALLOWED_PHONE_NUMBERS: ["+15550100011"],
+      LINQ_CONNECTOR: "linq/test",
+    },
   };
 });
 vi.mock("@vercel/connect/eve", () => ({
@@ -80,6 +84,18 @@ describe("Linq inbound authentication", () => {
       model: "user",
       where: [{ field: "phoneNumber", value: "+15550100011" }],
     });
+  });
+
+  it("drops messages from numbers outside ALLOWED_PHONE_NUMBERS without a lookup", async () => {
+    capture.findOne.mockResolvedValue({
+      id: "user-2",
+      phoneNumberVerified: true,
+    });
+
+    await expect(
+      onMessage(threadContext(), linqMessage("+15550100022"))
+    ).resolves.toBeNull();
+    expect(capture.findOne).not.toHaveBeenCalled();
   });
 
   it("drops messages from handles whose user has not verified the phone", async () => {

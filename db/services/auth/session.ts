@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getAuth } from "@db/services/auth";
+import { isPhoneNumberAllowed } from "@shared/identity/phone-allowlist";
 
 const authenticatedSessionSchema = z
   .object({
@@ -17,5 +18,9 @@ export async function getAuthSession(headers: Headers) {
   const auth = await getAuth();
   const session = await auth.api.getSession({ headers });
   const parsed = authenticatedSessionSchema.safeParse(session);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  // Sessions created before a number left the allowlist stop working too.
+  return isPhoneNumberAllowed(parsed.data.user.phoneNumber)
+    ? parsed.data
+    : null;
 }

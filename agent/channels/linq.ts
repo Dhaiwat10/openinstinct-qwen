@@ -14,6 +14,7 @@ import { getAuth } from "@db/services/auth";
 import { sendMessageToolResultSchema } from "@shared/chat/message-delivery";
 import { reactToMessageToolResultSchema } from "@shared/chat/reaction";
 import { accessScopeForUser } from "@shared/identity/access-scope";
+import { isPhoneNumberAllowed } from "@shared/identity/phone-allowlist";
 import { normalizeAuthPhoneNumber } from "@shared/identity/phone-number";
 import { prepareLinqImageArtifactDelivery } from "../lib/linq-image-artifact/delivery";
 import {
@@ -378,9 +379,10 @@ export default linqChannel({
     const phoneNumber = authorUserName.success
       ? normalizeAuthPhoneNumber(authorUserName.data)
       : undefined;
-    const verifiedUserId = phoneNumber
-      ? await findVerifiedAuthUserIdByPhoneNumber(phoneNumber)
-      : undefined;
+    const verifiedUserId =
+      phoneNumber && isPhoneNumberAllowed(phoneNumber)
+        ? await findVerifiedAuthUserIdByPhoneNumber(phoneNumber)
+        : undefined;
     if (!verifiedUserId || !phoneNumber) {
       // Phone possession is the only sign-in factor, so a handle that is not
       // linked to a verified user is unauthenticated: never mint a principal

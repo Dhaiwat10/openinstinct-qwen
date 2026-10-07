@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 const applicationEnvironment = [
+  "ALLOWED_PHONE_NUMBERS",
   "BETTER_AUTH_*",
   "BLOB_*",
   "DATABASE_URL",
@@ -67,9 +68,11 @@ describe("Turbo configuration", () => {
       ?.split("### Linq iMessage setup", 1)[0];
 
     expect(deployButton?.searchParams.get("repository-url")).toBe(
-      "https://github.com/Merit-Systems/OpenInstinct"
+      "https://github.com/Dhaiwat10/openinstinct-qwen"
     );
-    expect(deployButton?.searchParams.has("env")).toBe(false);
+    expect(deployButton?.searchParams.get("env")).toBe(
+      "NEAR_AI_API_KEY,ALLOWED_PHONE_NUMBERS"
+    );
     expect(deployButton?.searchParams.has("products")).toBe(false);
     expect(
       JSON.parse(deployButton?.searchParams.get("stores") ?? "null")
