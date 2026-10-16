@@ -1,86 +1,31 @@
-# Agent evals
+# Evals
 
-Validation has three separate tiers:
+There are three tiers:
 
-- `pnpm test:runtime` compiles and runs the production browser workflow in an
-  isolated Eve app with deterministic model responses. It checks structured
-  completion, worker continuation, and cancellation of an active child tool.
-  It needs no Gateway key, Kernel key, database, or Docker service. CI runs it
-  after `pnpm check`. Reports are saved under `.eve/runtime-smoke/`.
-  The runner copies current production tool source on each run; it does not
-  maintain a second implementation. This tests Eve lifecycle behavior, not
-  model judgment or real browser interaction.
-
-- `agent/` is the behavioral regression suite for the root coordinator. It
-  covers conversation quality, tool routing, safety and approval boundaries,
-  memory isolation, personal information, scheduled execution and reporting,
-  and worker orchestration.
-- `browser/` is the slower end-to-end browser benchmark. It exercises real
-  sites and records benchmark-specific timing, cost, and completion artifacts.
-
-Directories are the grouping and filtering boundary. Each `.eval.ts` file owns
-one behavior family, and array cases within a file share the same setup without
-hiding their individual descriptions in the runner output.
-
-## Running the suites
-
-List every discovered case without making model calls:
+| Command              | What it checks                                                                                                     | Needs                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `pnpm test:runtime`  | The browser workflow lifecycle (completion, continuation, cancellation), using scripted model replies. Runs in CI. | Nothing                                                                                  |
+| `pnpm eval:agent`    | The root agent's behavior: routing, safety, memory, schedules, worker handoff. Lives in `agent/`.                  | Docker, `NEAR_AI_API_KEY`, and `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN` for the judge |
+| `pnpm bench:browser` | Real-site browser tasks. See [`browser/README.md`](browser/README.md).                                             | Kernel and model keys                                                                    |
 
 ```sh
-pnpm eval:list
+pnpm eval:list                     # list cases without model calls
+pnpm eval:agent                    # whole suite; judge thresholds are strict
+pnpm eval:agent --tag safety       # one family
+pnpm eval:ci                       # JUnit output to .eve/junit.xml
 ```
 
-Run the root-agent suite locally, including soft judge thresholds as failures:
+`eval:agent` loads `.env.local`, starts an isolated Postgres container, runs the
+migrations and then the suite, one case at a time. Kernel and callback URLs
+point to an unreachable address, so no case can drive a real browser or leak a
+callback. Results go to `.eve/evals/`.
 
-```sh
-pnpm eval:agent
-```
+## Writing cases
 
-Run one family while iterating:
-
-```sh
-pnpm eval:agent --tag safety
-pnpm eval:agent --tag routing
-```
-
-Produce JUnit output for CI:
-
-```sh
-pnpm eval:ci
-```
-
-The agent command loads `.env.local`, starts an isolated Docker Compose
-PostgreSQL service, runs migrations, executes the suite, and then stops the
-service. It requires `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN`; the behavior
-suite forces an unusable Kernel placeholder because browser work belongs in the
-separate benchmark. Its Kernel and application callback origins are pinned to an
-unreachable loopback address so worker-routing evals cannot reach the external
-browser service and background callbacks cannot escape the isolated target.
-Agent cases run serially so memory cases cannot leak state into a concurrently
-executing case, and memory cases remove their canaries.
-Judge-backed cases use the judge model in `evals.config.ts`. Full
-event streams and assertion details are written to `.eve/evals/`.
-
-Run the browser benchmark separately because it uses Kernel, real websites,
-and a longer completion loop:
-
-```sh
-pnpm bench:browser
-```
-
-See `browser/README.md` for benchmark suites, repetitions, A/B runs, and its
-dashboard.
-
-## What should be a gate
-
-Use deterministic gates for observable contracts: the selected tool, a pending
-approval, an absent secret canary, a required delivery, or a worker boundary.
-Use the judge only for qualities that cannot be expressed safely as an exact
-match, such as decisiveness, concise wording, or whether a free-form answer
-actually satisfies the request. Judge thresholds are soft in Eve, so run this
-suite with `--strict` when regressions should fail the command.
-
-When a production failure appears, add the smallest sanitized reproduction to
-the owning family. Add a new family only when it represents a genuinely new
-contract. Avoid examples that can send, purchase, delete, or otherwise mutate
-external state; approval evals should stop while the action is still pending.
+- Each `.eval.ts` file covers one behavior family.
+- Use exact assertions for what you can observe: the tool chosen, a pending
+  approval, an absent secret, a delivery. Use the judge only for qualities
+  like tone or whether an answer actually helps.
+- Turn production failures into small, sanitized cases in the matching family.
+- Never write a case that sends, buys, deletes or otherwise changes outside
+  state. Approval cases should stop while the action is still pending.
