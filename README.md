@@ -2,329 +2,149 @@
 
 <img src=".github/logo.png" alt="OpenInstinct" width="420">
 
-**A personal iMessage assistant that can use a browser like you.**
+**A self-hosted iMessage assistant that can use a browser for you.**
 
-It can do your chores, book you movie tickets, or handle your groceries.
-You stay in control of your passwords, credit cards and context.
-
-It's Open Source and self-hostable. This fork of
-[Merit-Systems/OpenInstinct](https://github.com/Merit-Systems/OpenInstinct)
-runs inference on Qwen through [NEAR AI Cloud](https://cloud.near.ai)'s
-verifiable TEEs. One-click deploy to Vercel and get rolling.
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FDhaiwat10%2Fopeninstinct-qwen&project-name=openinstinct-qwen&repository-name=openinstinct-qwen&env=NEAR_AI_API_KEY%2CALLOWED_PHONE_NUMBERS&envDescription=NEAR%20AI%20Cloud%20API%20key%20for%20inference%2C%20and%20the%20E.164%20phone%20numbers%20allowed%20to%20use%20the%20assistant%20%28comma-separated%29.&envLink=https%3A%2F%2Fgithub.com%2FDhaiwat10%2Fopeninstinct-qwen%23restricting-access&connect=%5B%7B%22type%22%3A%22linq%22%2C%22env%22%3A%22LINQ_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Flinq%22%7D%5D&stores=%5B%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22other%22%2C%22productSlug%22%3A%22kernel%22%2C%22integrationSlug%22%3A%22kernel%22%7D%2C%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22storage%22%2C%22productSlug%22%3A%22neon%22%2C%22integrationSlug%22%3A%22neon%22%7D%2C%7B%22type%22%3A%22blob%22%2C%22access%22%3A%22private%22%7D%5D)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FDhaiwat10%2Fopeninstinct-qwen&project-name=openinstinct-qwen&repository-name=openinstinct-qwen&env=NEAR_AI_API_KEY%2CALLOWED_PHONE_NUMBERS&envDescription=NEAR%20AI%20Cloud%20API%20key%20for%20inference%2C%20and%20the%20E.164%20phone%20numbers%20allowed%20to%20use%20the%20assistant%20%28comma-separated%29.&envLink=https%3A%2F%2Fgithub.com%2FDhaiwat10%2Fopeninstinct-qwen%23environment-variables&connect=%5B%7B%22type%22%3A%22linq%22%2C%22env%22%3A%22LINQ_CONNECTOR%22%2C%22triggers%22%3Atrue%2C%22triggerPath%22%3A%22%2Feve%2Fv1%2Flinq%22%7D%5D&stores=%5B%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22other%22%2C%22productSlug%22%3A%22kernel%22%2C%22integrationSlug%22%3A%22kernel%22%7D%2C%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22storage%22%2C%22productSlug%22%3A%22neon%22%2C%22integrationSlug%22%3A%22neon%22%7D%2C%7B%22type%22%3A%22blob%22%2C%22access%22%3A%22private%22%7D%5D)
 
 <img src=".github/demo.png" alt="OpenInstinct booking movie tickets over iMessage — it walks Fandango to checkout and reports the theater, showtime, seat, and total" width="640">
 
 </div>
 
-> **Agents:** For the simplest deployment, give your human the
-> **Deploy with Vercel** link above and have them complete the guided flow. It
-> automatically provisions and connects Kernel, Postgres, private Blob storage,
-> and Linq, and asks for `NEAR_AI_API_KEY` and `ALLOWED_PHONE_NUMBERS`.
-> OpenInstinct creates its installation secrets on first use.
+You text it and it does the task: booking tickets, checking your calendar,
+filling in forms. Passwords and cards stay encrypted in your own database, and
+the model never sees them.
 
-## Why self-host?
+This is a fork of
+[Merit-Systems/OpenInstinct](https://github.com/Merit-Systems/OpenInstinct). It
+differs from upstream in a few ways:
 
-Personal agents are much more useful when they can sign in, book, buy and act
-on your behalf. But your accounts, your passwords, are the keys to your digital
-kingdom. OpenInstinct runs in your own Vercel account. Secrets are encrypted
-before they touch your database and models never see them. Verify yourself by
-reading the code!
+- **Inference runs on Qwen through [NEAR AI Cloud](https://cloud.near.ai)**, in
+  TEEs that publish attestation evidence, instead of Vercel AI Gateway. Both the
+  agent and the browser worker default to `Qwen/Qwen3.8-27B`; the alternatives
+  are listed in `shared/inference/models.ts`.
+- **Web search uses [Tavily](https://tavily.com).** Queries leave the TEE.
+- **`ALLOWED_PHONE_NUMBERS` makes a deployment private** (see below).
+- **Fits the Vercel Hobby plan.** Scheduled tasks run once a day at 13:00 UTC.
+- **Fixes for Qwen over iMessage:** the date is stated on every turn, a turn
+  never ends without a reply, and a turn can't answer its own message again.
 
-## Restricting access
+## Deploy
 
-Phone verification signs anyone in by default, and every user spends the
-deployment's inference, browser, and search credits. Set
-`ALLOWED_PHONE_NUMBERS` to a comma-separated list of E.164 numbers, such as
-`+14155550123`, to make the deployment private. OpenInstinct then refuses to
-send sign-in codes to other numbers, blocks their sign-up, rejects their
-sessions, and ignores their iMessages. Keep the list in the deployment's
-environment variables rather than in source, so a public fork does not publish
-your number.
+1. Click **Deploy with Vercel** above. It provisions Kernel (cloud browsers),
+   Neon (Postgres), a private Blob store and a Linq iMessage line, then asks for
+   two values:
+   - `NEAR_AI_API_KEY` from [cloud.near.ai](https://cloud.near.ai).
+   - `ALLOWED_PHONE_NUMBERS`: your number in E.164 format, such as
+     `+14155550123`. Separate multiple numbers with commas.
+2. Optional: add `TAVILY_API_KEY` from [app.tavily.com](https://app.tavily.com)
+   to turn on web search.
+3. In the Linq connector's Vercel Connect settings, complete the one-time
+   **Phone Numbers** verification. Then text the Linq number once and sign in
+   at your deployment URL with your phone number.
 
-## Deployment
+Auth and vault-encryption keys are generated in the Blob store on first use.
+**Don't delete that store**: it holds the only copy of the vault key.
 
-The deploy button provisions [Kernel](https://kernel.sh) for cloud browsers,
-[Neon](https://neon.tech) for Postgres, and a private Vercel Blob store for
-browser images, per-user memory, and installation secrets. It also creates and
-attaches a [Linq](https://linq.app) connector for iMessage.
+### Environment variables
 
-Inference runs on [NEAR AI Cloud](https://cloud.near.ai), whose open-weight
-models execute in TEEs (Intel TDX with NVIDIA confidential computing) and
-publish attestation evidence. Both the root agent and the browser worker use
-`Qwen/Qwen3.8-27B` by default; the workspace model picker offers the verifiable
-models listed in `shared/inference/models.ts`. Set `NEAR_AI_API_KEY` in the
-deployment environment. The root agent's `web_search` tool calls
-[Tavily](https://tavily.com) directly and needs `TAVILY_API_KEY`; search queries
-go to Tavily outside the TEE.
+| Variable                                                         | Required        | Notes                                                                                           |
+| ---------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------- |
+| `NEAR_AI_API_KEY`                                                | Yes             | Model inference.                                                                                |
+| `ALLOWED_PHONE_NUMBERS`                                          | Recommended     | Comma-separated E.164 numbers. If unset, any verified phone can sign up and spend your credits. |
+| `TAVILY_API_KEY`                                                 | No              | Enables `web_search`.                                                                           |
+| `KERNEL_API_KEY`                                                 | Auto            | Set by the Kernel integration. Needed manually outside Vercel.                                  |
+| `DATABASE_URL`, `DATABASE_URL_UNPOOLED`                          | Auto            | Set by Neon.                                                                                    |
+| `LINQ_CONNECTOR`                                                 | Auto            | Set by the deploy flow. See [Linq](#linq-imessage).                                             |
+| `GOOGLE_CONNECTOR_UID`                                           | No              | Defaults to `google/open-instinct`. See [Google](#google-gmail-calendar-contacts).              |
+| `LINK_CLIENT_ID`, `LINK_CLIENT_SECRET`, `STRIPE_PUBLISHABLE_KEY` | No              | Stripe Link wallet. See [Link](#link-wallet).                                                   |
+| `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `SECRET_ENCRYPTION_KEY` | Non-Vercel only | Generate the secrets with `openssl rand -base64 32`.                                            |
+| `BLOB_READ_WRITE_TOKEN`                                          | Non-Vercel only | Private Blob store for memory and browser images.                                               |
 
-On the Vercel Hobby plan, cron jobs may run at most once a day, so scheduled
-tasks start daily at 13:00 UTC (`agent/schedules/dynamic.ts`). On Pro, change
-the schedule back to `* * * * *` for minute-level timing.
+Keep `ALLOWED_PHONE_NUMBERS` in the deployment environment, not in source, so a
+public fork doesn't publish your number.
 
-On first use, OpenInstinct creates independent Better Auth and vault-encryption
-keys in the private Blob store. Vercel supplies the application URL, database,
-Kernel, Blob, and Linq configuration, so the deploy flow requires no
-environment-variable values. For a non-Vercel host or an existing installation
-that manages its own keys, set both secret overrides and the public application
-URL explicitly:
+## Linq (iMessage)
 
-```bash
-BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
-BETTER_AUTH_URL=https://your-host
-SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-```
-
-The application database schema and versioned migrations live in `db/`. The
-Drizzle application store uses `DATABASE_URL` for runtime queries; its migration
-commands require the direct `DATABASE_URL_UNPOOLED` connection. Run
-`pnpm db:migrate` before starting against a new or upgraded local database.
-Vercel uses Turbo to run the uncached migration task before its application
-build. See [`db/README.md`](db/README.md) for existing-database adoption,
-environment loading, and constraint-validation sequencing. Better Auth retains
-its separate migration path.
-
-Treat the private Blob store as production key material: deleting it loses the
-automatically generated encryption key, and rotating that key requires
-re-encrypting existing vault values.
-
-### Blob storage
-
-The one-click deploy creates and connects a private Blob store automatically.
-Vercel supplies `BLOB_STORE_ID` and a short-lived `VERCEL_OIDC_TOKEN` to each
-deployment, so there is no long-lived Blob credential to copy.
-
-OpenInstinct uses this store for persistent per-user memory and browser images.
-Production conversations require it because memory is recalled before each agent
-turn. Local Eve development uses process-local memory instead.
-
-Ongoing undertakings use a separate `workstreams` memory slot backed by the
-application database. Run the application migrations before using this feature;
-it needs no additional service or credentials. The root agent can save goals,
-constraints, decisions, source-linked observations, and unresolved steps across
-conversations. It recalls an index of the eight most recently updated active or
-waiting workstreams, then reads the selected record before continuing. Older and
-completed workstreams remain searchable.
-
-Workstreams are scoped by authenticated workspace and Eve's deployment-aware
-memory key. Updates require the current revision. Each scope retains content for up to 100
-bounded records; the agent asks which obsolete record to forget at capacity.
-Forgetting erases the content and source references, retaining only a tombstone
-to prevent an interrupted save from restoring them. Existing chat history is
-unchanged. This slot is available only in interactive root turns; remembering
-work does not start a job, create a schedule, or authorize an action.
-
-For an existing Vercel project, link it first with
-`eve link --project <your-vercel-project> --non-interactive`, then create and
-connect the store with one command:
-
-```bash
-pnpm exec vercel blob create-store open-instinct-images --access private --yes --environment production --environment preview --environment development
-```
-
-Outside Vercel, set `BLOB_READ_WRITE_TOKEN` from a private Blob store instead.
-The memory provider uses that token explicitly, and browser image capture uses the
-same store.
-
-### Linq iMessage setup
-
-The deploy button creates a managed line, writes `LINQ_CONNECTOR`, and
-attaches the inbound webhook trigger automatically. For an existing Vercel
-project, link the checkout, create a Linq line, and attach its connector for both
-app tokens and inbound webhook triggers:
+The deploy button sets this up for you. To add it to an existing Vercel project:
 
 ```bash
 vercel link
-vercel connect create linq --connection-method line --name open-instinct --triggers --trigger-event message.received --trigger-event reaction.added --trigger-event reaction.removed --trigger-path /eve/v1/linq --trigger-project <your-vercel-project> --json
-vercel connect attach <returned-connector-uid> --project <your-vercel-project> --environment production --triggers --trigger-path /eve/v1/linq --yes
-vercel env add LINQ_CONNECTOR production --value <returned-connector-uid> --yes
-eve deploy --non-interactive --yes
+vercel connect create linq --connection-method line --name open-instinct --triggers --trigger-event message.received --trigger-event reaction.added --trigger-event reaction.removed --trigger-path /eve/v1/linq --trigger-project <project> --json
+vercel connect attach <connector-uid> --project <project> --environment production --triggers --trigger-path /eve/v1/linq --yes
+vercel env add LINQ_CONNECTOR production --value <connector-uid> --yes
 ```
 
-The create command returns the connector UID. Repeat the attachment and
-environment-variable steps for preview or development if those environments
-should use Linq too. `LINQ_PHONE_NUMBER` is an optional E.164 override that adds
-a click-to-message shortcut in the workspace; Linq delivery itself uses the
-line assigned to the connector.
+Then redeploy. Pass the `--triggers` flags on both commands. A connector
+created without them can send sign-in codes but never forwards incoming texts,
+and you can't turn triggers on later.
 
-Before the first sign-in, open the connector's Vercel Connect settings and
-follow the one-time **Phone Numbers** verification instruction. Additional users
-verify themselves by messaging the connector's Linq number once. The
-`--triggers` options are required on both commands. `connect create` enables the
-connector's webhook events, which cannot be turned on afterwards, and
-`connect attach` registers this project as their destination. A connector
-created without them can send sign-in codes but never forwards incoming
-messages, so the assistant appears to ignore every text. Linq allows one free
-shared line per email; to add triggers to an existing line, create a new
-connector from that account's API token with `--connector-type linq --data`.
+## Google (Gmail, Calendar, Contacts)
 
-## Google Workspace connection
-
-OpenInstinct can use a user's Gmail, Calendar, and read-only Contacts through a
-user-scoped Google OAuth grant. Vercel Connect stores and refreshes the tokens;
-OpenInstinct stores only the stable user identity used to request them. Gmail
-access deliberately uses `gmail.modify`, not the permanent-delete
-`mail.google.com` scope.
-
-1. In one Google Cloud project, configure the OAuth consent screen and enable
-   the Gmail API, Google Calendar API, and People API.
-2. Create OAuth web credentials. Add
-   `https://connect.vercel.com/callback` as an authorized redirect URI, then
-   download the client-secret JSON.
-3. Vercel expects top-level `clientId` and `clientSecret` keys, not Google's
-   nested `web.client_id` and `web.client_secret` download. Convert the download
-   into a temporary file outside the repository, then create and attach the
-   connector:
+1. In [Google Cloud Console](https://console.cloud.google.com/projectcreate),
+   create a project and enable the **Gmail**, **Calendar** and **People** APIs.
+2. Configure the [OAuth consent screen](https://console.cloud.google.com/auth/overview)
+   as External, and add your Gmail address under **Audience → Test users**.
+   Without that, Google rejects the connection with `Error 403: access_denied`.
+3. [Create an OAuth client](https://console.cloud.google.com/auth/clients/create)
+   of type Web application, with the redirect URI
+   `https://connect.vercel.com/callback`. Download the JSON.
+4. Create and attach the connector:
 
    ```bash
-   vercel link
-   google_credentials_file="$(mktemp)"
-   jq '{clientId: .web.client_id, clientSecret: .web.client_secret}' /absolute/path/to/downloaded-client-secret.json > "$google_credentials_file"
-   vercel connect create google --connection-method oauth --name open-instinct --data @"$google_credentials_file"
-   rm -f "$google_credentials_file"
-   vercel connect attach <returned-connector-uid> --project <your-vercel-project> --environment production --yes
-   vercel env pull
+   f="$(mktemp)"
+   jq '{clientId: .web.client_id, clientSecret: .web.client_secret}' ~/Downloads/client_secret_*.json > "$f"
+   vercel connect create google --connection-method oauth --name open-instinct --data @"$f"
+   rm -f "$f"
+   vercel connect attach google/open-instinct --project <project> --environment production --yes
    ```
 
-   Never commit either credential file.
+5. Redeploy, sign in to the web app, and click **Connect** on the Google
+   Workspace card.
 
-4. Set `GOOGLE_CONNECTOR_UID` to the returned UID and redeploy. The default is
-   `google/open-instinct`.
-
-Gotchas:
-
-- Attach the connector separately to every Vercel environment that should use
-  it. A production attachment does not make preview or local development work.
-- The Gmail read/modify scope is restricted. A Google OAuth app in Testing mode
-  only works for listed test users, and those grants expire after seven days.
-  Broader distribution requires Google's OAuth verification and may require a
-  security assessment.
-- The scopes requested here must also be declared on the Google consent screen.
-  After changing scopes or enabled APIs, disconnect and reconnect the account so
-  Google issues a grant with the new access.
-- The grant is keyed to the authenticated OpenInstinct user. iMessage reaches
-  the same grant only when its verified phone number maps to that Better Auth
-  account.
-- Google Contacts search uses a provider-side lazy cache, so a contact created
-  moments ago may not appear immediately.
-- User-requested email and calendar operations run without an extra Eve tool
-  approval. Calendar events with attendees send Google invitations.
+While the app is in Testing mode, the grant expires every 7 days. When it does,
+click Disconnect, then Connect. A connector only works in the Vercel
+environments it's attached to.
 
 ## Link wallet
 
-The root agent mounts `@stripe/link-integrations-eve` in
-`agent/extensions/link.ts`. It uses Stripe's bundled wallet tools and skills,
-with per-user authorization through the existing Better Auth
-account. It does not use a shared wallet token.
+Optional. This lets the agent pay with your [Stripe Link](https://link.com)
+wallet. Every purchase still needs your approval in Link.
 
-To enable it, register a Link OAuth client and configure `LINK_CLIENT_ID`,
-`LINK_CLIENT_SECRET`, and `STRIPE_PUBLISHABLE_KEY` on the server. Register the
-exact redirect URI `https://<your-app-host>/api/auth/callback/link` with Stripe,
-including a separate localhost URI when developing locally. Set
-`BETTER_AUTH_URL` to the canonical application origin. These values are optional
-for installations that do not use Link.
-
-Apply the database migration with `pnpm db:migrate` before enabling Link. It
-enforces one Link wallet per OpenInstinct account. Disconnect the current wallet
-before connecting a different one; reconnecting the same wallet refreshes its
-grant.
-
-Users connect or disconnect their wallet from **Link wallet** in the sidebar.
-An agent request that needs a wallet sends a native connection link. Opening it
-redirects to Link's consent screen after any required OpenInstinct sign-in, then
-resumes through Eve's authorization callback. Purchase approval links use Link's
-original URLs directly. Connection attempts expire after ten
-minutes and belong to the signed-in user. Better Auth stores encrypted grants
-and refreshes tokens; disconnection revokes the Link grant before removing it.
-Phone sign-in continues to work after disconnecting a wallet.
-
-Wallet access is available in interactive conversations, not scheduled workers
-or scheduled result delivery. Spend requests run without an extra Eve tool
-approval and always request purchase approval in Link. Its tools can
-return payment credentials into stored Eve tool results; the bundled skills
-instruct the agent not to repeat them in chat. Financial-data tools also require
-the corresponding Link grant scopes; the default grant requests
-`payment_methods.agentic` and `userinfo:read`.
-
-## Eve compatibility
-
-This branch pins Eve `0.66.3` and the published Link extension `0.2.4`.
-The extension's tool contract is supported directly, so it needs no compatibility
-rebuild. Browser work uses the background workflow and `agentId` continuation
-APIs supported by this Eve version.
-
-Do not move an active session from Eve `0.69` onto this deployment. Keep existing
-sessions on their owning deployment until they finish, and start a new
-conversation on this branch's deployment. This rollback does not reset or
-cancel production sessions.
+1. Register a Link OAuth client with the redirect URI
+   `https://<your-host>/api/auth/callback/link`.
+2. Set `LINK_CLIENT_ID`, `LINK_CLIENT_SECRET`, `STRIPE_PUBLISHABLE_KEY` and
+   `BETTER_AUTH_URL`.
+3. Connect the wallet from **Link wallet** in the sidebar.
 
 ## Local development
 
-The **Deploy with Vercel** flow above is the simplest way to run OpenInstinct. It
-provisions the required services and credentials automatically. Local
-development is a manual path and requires:
-
-- Node.js 24 and pnpm 11.24.0
-- Docker Desktop or another running Docker Compose installation
-- Kernel credentials from a [Kernel API key](https://kernel.sh) or a linked
-  Vercel Marketplace resource
-- A [NEAR AI Cloud](https://cloud.near.ai) API key, and optionally a Tavily API
-  key for web search
-
-First clone and install the application:
+You need Node 24, pnpm 11.24.0, Docker, a Kernel API key and a NEAR AI API key.
 
 ```bash
 git clone https://github.com/Dhaiwat10/openinstinct-qwen.git
 cd openinstinct-qwen
 pnpm install --frozen-lockfile
-```
-
-For fully manual setup, copy the environment template and add your Kernel and
-NEAR AI keys:
-
-```bash
-cp .env.example .env.local
-
-# Set KERNEL_API_KEY, NEAR_AI_API_KEY, and optionally TAVILY_API_KEY in .env.local.
-```
-
-If you already use a Vercel project, link it to pull its environment. If that
-project does not have Kernel yet, the Marketplace CLI provisions the free
-Developer plan, connects it to the project, and pulls its environment variables:
-
-```bash
-pnpm exec eve link --project <your-vercel-project> --non-interactive
-pnpm exec vercel integration add kernel --plan FREE
-```
-
-Then start OpenInstinct:
-
-```bash
+cp .env.example .env.local   # set KERNEL_API_KEY, NEAR_AI_API_KEY, optionally TAVILY_API_KEY
 pnpm dev
 ```
 
-`pnpm dev` starts PostgreSQL from `compose.yaml`, applies the committed database
-migrations, and starts the application. Stopping the development process also
-stops and removes the PostgreSQL container; its data remains in the
-`postgres-data` volume for the next run. Run `pnpm dev:app` when intentionally
-using an externally managed database instead. If `KERNEL_API_KEY` is missing,
-`pnpm dev` stops before starting Docker and points back to the recommended
-Vercel flow or the manual `.env.local` setup.
+`pnpm dev` starts Postgres in Docker, runs the migrations and starts the app.
+Use `pnpm dev:app` to run against your own database instead.
 
-Local development otherwise uses the same vault, Kernel browser, and NEAR AI
-inference path as the Vercel deployment. Better Auth and vault encryption use stable
-local-only defaults when their variables are unset. Vercel deployments
-provision them automatically in private Blob; other production hosts require
-explicit secrets.
+| Command                           | What it does                                                                       |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `pnpm check`                      | Runs lint, type checks, tests, the format check and knip                           |
+| `pnpm build`                      | Builds for production (needs the env vars above)                                   |
+| `pnpm db:generate` / `db:migrate` | Generates or applies migrations ([`db/`](db/README.md))                            |
+| `pnpm eval:agent`                 | Runs the agent behavior evals ([`evals/`](evals/README.md))                        |
+| `pnpm bench:browser`              | Runs the real-site browser benchmark ([`evals/browser/`](evals/browser/README.md)) |
+
+On Vercel Pro, you can change the cron in `agent/schedules/dynamic.ts` back to
+`* * * * *` so scheduled tasks run every minute instead of once a day.
 
 > [!WARNING]
-> This is not software intended for production use.
+> Experimental. This isn't production software.
 
----
+## License
 
-<div align="center">
-
-Built on [Vercel](https://vercel.com) · [Kernel](https://kernel.sh) · [Linq](https://linq.app) · [Neon](https://neon.tech)
-
-</div>
+MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
