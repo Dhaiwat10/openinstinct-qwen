@@ -1,9 +1,7 @@
 import { defineDynamic, defineTool } from "eve/tools";
 import { z } from "zod";
 import {
-  calendarEventSchema,
   checkCalendarAvailability,
-  createCalendarEvent,
   listCalendarEvents,
 } from "@agent/lib/google-workspace/calendar";
 import { resolveModeValue } from "@agent/lib/mode";
@@ -36,25 +34,12 @@ export const calendarCheckAvailability = defineTool({
   },
 });
 
-export const calendarCreateEvent = defineTool({
-  description:
-    "Create a user-requested confirmed private Google Calendar event and send updates to attendees.",
-  inputSchema: calendarEventSchema,
-  async execute(input, ctx) {
-    return {
-      created: true,
-      event: await createCalendarEvent(ctx, input),
-    };
-  },
-});
-
 export default defineDynamic({
   events: {
     "turn.started": (_event, context) =>
       resolveModeValue(context, {
         interactive: {
           "calendar-check-availability": calendarCheckAvailability,
-          "calendar-create-event": calendarCreateEvent,
           "calendar-list-events": calendarListEvents,
         },
         "scheduled-worker": {

@@ -1,32 +1,9 @@
-import { createHash } from "node:crypto";
 import { gmail, type gmail_v1 } from "@googleapis/gmail";
 import type { ToolContext } from "eve/tools";
-import { z } from "zod";
 import { withGoogleAuth } from "./client";
 
 type GmailMessage = gmail_v1.Schema$Message;
 type GmailPart = gmail_v1.Schema$MessagePart;
-
-export const GMAIL_UPDATE_ACTIONS = [
-  "archive",
-  "move_to_inbox",
-  "mark_read",
-  "mark_unread",
-  "star",
-  "unstar",
-] as const;
-
-export type GmailUpdateAction = (typeof GMAIL_UPDATE_ACTIONS)[number];
-
-export const gmailSendSchema = z.object({
-  bcc: z.array(z.email()).max(20).default([]),
-  body: z.string().min(1).max(100_000),
-  cc: z.array(z.email()).max(20).default([]),
-  inReplyTo: z.string().max(998).optional(),
-  subject: z.string().min(1).max(998),
-  threadId: z.string().max(200).optional(),
-  to: z.array(z.email()).min(1).max(20),
-});
 
 export async function searchGmail(
   ctx: ToolContext,
@@ -81,89 +58,6 @@ export async function readGmailThread(ctx: ToolContext, threadId: string) {
       ),
     };
   });
-}
-
-export async function updateGmail(
-  ctx: ToolContext,
-  messageIds: string[],
-  action: GmailUpdateAction
-) {
-  const ids = [...new Set(messageIds)];
-  await withGmail(ctx, async (client) =>
-    client.users.messages.batchModify(
-      {
-        requestBody: { ids, ...gmailUpdateLabels(action) },
-        userId: "me",
-      },
-      { signal: ctx.abortSignal }
-    )
-  );
-  return { action, updatedCount: ids.length };
-}
-
-export async function sendGmail(
-  ctx: ToolContext,
-  payload: z.infer<typeof gmailSendSchema>
-) {
-  const stableId = createHash("sha256")
-    .update(`${ctx.session.id}:${ctx.callId}`)
-    .digest("hex")
-    .slice(0, 48);
-  const headers = [
-    `To: ${payload.to.map(safeHeader).join(", ")}`,
-    ...(payload.cc.length
-      ? [`Cc: ${payload.cc.map(safeHeader).join(", ")}`]
-      : []),
-    ...(payload.bcc.length
-      ? [`Bcc: ${payload.bcc.map(safeHeader).join(", ")}`]
-      : []),
-    `Subject: ${safeHeader(payload.subject)}`,
-    `Message-ID: <openinstinct-${stableId}@local>`,
-    ...(payload.inReplyTo
-      ? [
-          `In-Reply-To: ${safeHeader(payload.inReplyTo)}`,
-          `References: ${safeHeader(payload.inReplyTo)}`,
-        ]
-      : []),
-    "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: 8bit",
-  ];
-  const raw = Buffer.from(
-    `${headers.join("\r\n")}\r\n\r\n${payload.body}`,
-    "utf8"
-  ).toString("base64url");
-  return withGmail(ctx, async (client) => {
-    const requestBody = payload.threadId
-      ? { raw, threadId: payload.threadId }
-      : { raw };
-    const { data } = await client.users.messages.send(
-      {
-        requestBody,
-        userId: "me",
-      },
-      { signal: ctx.abortSignal }
-    );
-    return data;
-  });
-}
-
-export function gmailUpdateLabels(action: GmailUpdateAction) {
-  switch (action) {
-    case "archive":
-      return { addLabelIds: [], removeLabelIds: ["INBOX"] };
-    case "move_to_inbox":
-      return { addLabelIds: ["INBOX"], removeLabelIds: [] };
-    case "mark_read":
-      return { addLabelIds: [], removeLabelIds: ["UNREAD"] };
-    case "mark_unread":
-      return { addLabelIds: ["UNREAD"], removeLabelIds: [] };
-    case "star":
-      return { addLabelIds: ["STARRED"], removeLabelIds: [] };
-    case "unstar":
-      return { addLabelIds: [], removeLabelIds: ["STARRED"] };
-  }
-  throw new Error("Unsupported Gmail update action.");
 }
 
 function header(part: GmailPart | undefined, name: string) {
@@ -225,10 +119,6 @@ function collectAttachments(part: GmailPart | undefined): {
     return collectAttachments(child);
   });
   return [...own, ...nested];
-}
-
-function safeHeader(value: string) {
-  return value.replace(/[\r\n]+/gu, " ").trim();
 }
 
 function withGmail<T>(

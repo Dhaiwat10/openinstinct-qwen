@@ -1,20 +1,16 @@
-import { createHash } from "node:crypto";
 import * as CalendarApi from "@googleapis/calendar";
 import * as GmailApi from "@googleapis/gmail";
 import * as PeopleApi from "@googleapis/people";
 import type { ToolContext } from "eve/tools";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createCalendarEvent } from "@agent/lib/google-workspace/calendar";
 import { withGoogleAuth } from "@agent/lib/google-workspace/client";
 import { searchGoogleContacts } from "@agent/lib/google-workspace/contacts";
-import { sendGmail } from "@agent/lib/google-workspace/gmail";
 
 interface RequestOptions {
   signal: AbortSignal;
 }
 
 const calendarMock = vi.spyOn(CalendarApi, "calendar");
-const gmailMock = vi.spyOn(GmailApi, "gmail");
 const peopleMock = vi.spyOn(PeopleApi, "people");
 const setCredentialsMock = vi.spyOn(
   GmailApi.auth.OAuth2.prototype,
@@ -37,103 +33,6 @@ describe("generated Google Workspace clients", () => {
       access_token: "google-access-token",
     });
     expect(ctx.requireAuth).toHaveBeenCalledOnce();
-  });
-
-  it("sends typed Gmail requests with a stable retry-safe message ID", async () => {
-    const ctx = toolContext();
-    const client = GmailApi.gmail({ version: "v1" });
-    const send = vi
-      .fn<
-        (
-          request: {
-            requestBody: { raw: string; threadId?: string };
-            userId: string;
-          },
-          options: RequestOptions
-        ) => Promise<{ data: { id: string; threadId: string } }>
-      >()
-      .mockResolvedValue({ data: { id: "sent-1", threadId: "thread-1" } });
-    Object.defineProperty(client.users.messages, "send", { value: send });
-    googleClients({ gmail: client });
-
-    await sendGmail(ctx, {
-      bcc: [],
-      body: "Hello",
-      cc: [],
-      subject: "Status",
-      to: ["person@example.com"],
-    });
-
-    const stableId = createHash("sha256")
-      .update("session-1:call-1")
-      .digest("hex")
-      .slice(0, 48);
-    const raw = Buffer.from(
-      [
-        "To: person@example.com",
-        "Subject: Status",
-        `Message-ID: <openinstinct-${stableId}@local>`,
-        "MIME-Version: 1.0",
-        'Content-Type: text/plain; charset="UTF-8"',
-        "Content-Transfer-Encoding: 8bit",
-      ].join("\r\n") + "\r\n\r\nHello",
-      "utf8"
-    ).toString("base64url");
-    expect(send).toHaveBeenCalledWith(
-      { requestBody: { raw }, userId: "me" },
-      { signal: ctx.abortSignal }
-    );
-  });
-
-  it("recovers a duplicate Calendar insert using the stable event ID", async () => {
-    const ctx = toolContext();
-    const client = CalendarApi.calendar({ version: "v3" });
-    const insert = vi
-      .fn<
-        (
-          request: {
-            calendarId: string;
-            requestBody: { id?: string };
-            sendUpdates?: string;
-          },
-          options: RequestOptions
-        ) => Promise<never>
-      >()
-      .mockRejectedValue(new GoogleApiError(409));
-    const get = vi
-      .fn<
-        (
-          request: { calendarId: string; eventId: string },
-          options: RequestOptions
-        ) => Promise<{ data: { id: string; summary: string } }>
-      >()
-      .mockResolvedValue({
-        data: { id: "existing-event", summary: "Planning" },
-      });
-    Object.defineProperty(client.events, "get", { value: get });
-    Object.defineProperty(client.events, "insert", { value: insert });
-    googleClients({ calendar: client });
-
-    await expect(
-      createCalendarEvent(ctx, {
-        attendees: ["person@example.com"],
-        calendarId: "primary",
-        end: "2026-08-28T11:00:00-04:00",
-        start: "2026-08-28T10:00:00-04:00",
-        summary: "Planning",
-        timezone: "America/New_York",
-      })
-    ).resolves.toEqual({ id: "existing-event", summary: "Planning" });
-
-    const eventId = createHash("sha256")
-      .update("session-1:call-1")
-      .digest("hex")
-      .slice(0, 32);
-    expect(insert.mock.calls[0]?.[1]).toEqual({ signal: ctx.abortSignal });
-    expect(get).toHaveBeenCalledWith(
-      { calendarId: "primary", eventId },
-      { signal: ctx.abortSignal }
-    );
   });
 
   it("warms the People search cache before the typed contact query", async () => {
@@ -205,11 +104,9 @@ function toolContext() {
 
 function googleClients(clients: {
   calendar?: ReturnType<typeof CalendarApi.calendar>;
-  gmail?: ReturnType<typeof GmailApi.gmail>;
   people?: ReturnType<typeof PeopleApi.people>;
 }) {
   if (clients.calendar) calendarMock.mockReturnValue(clients.calendar);
-  if (clients.gmail) gmailMock.mockReturnValue(clients.gmail);
   if (clients.people) peopleMock.mockReturnValue(clients.people);
 }
 

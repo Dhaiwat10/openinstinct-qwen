@@ -24,6 +24,8 @@ differs from upstream in a few ways:
   are listed in `shared/inference/models.ts`.
 - **Web search uses [Tavily](https://tavily.com).** Queries leave the TEE.
 - **`ALLOWED_PHONE_NUMBERS` makes a deployment private** (see below).
+- **Google access is read-only.** The agent can read Gmail, Calendar and
+  Contacts, but it can't send mail or create events.
 - **Fits the Vercel Hobby plan.** Scheduled tasks run once a day at 13:00 UTC.
 - **Fixes for Qwen over iMessage:** the date is stated on every turn, a turn
   never ends without a reply, and a turn can't answer its own message again.
@@ -80,6 +82,9 @@ and you can't turn triggers on later.
 
 ## Google (Gmail, Calendar, Contacts)
 
+The app requests read-only scopes: `gmail.readonly`,
+`calendar.events.readonly`, `calendar.freebusy` and `contacts.readonly`.
+
 1. In [Google Cloud Console](https://console.cloud.google.com/projectcreate),
    create a project and enable the **Gmail**, **Calendar** and **People** APIs.
 2. Configure the [OAuth consent screen](https://console.cloud.google.com/auth/overview)
@@ -101,7 +106,9 @@ and you can't turn triggers on later.
 5. Redeploy, sign in to the web app, and click **Connect** on the Google
    Workspace card.
 
-While the app is in Testing mode, the grant expires every 7 days. When it does,
+If you connected before the scopes changed, click Disconnect, then Connect, to
+replace the old grant. While the app is in Testing mode, the grant expires
+every 7 days. When it does,
 click Disconnect, then Connect. A connector only works in the Vercel
 environments it's attached to.
 
