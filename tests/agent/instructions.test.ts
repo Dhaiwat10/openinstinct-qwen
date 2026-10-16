@@ -137,9 +137,10 @@ describe("agent instructions", () => {
 
       const selected = await resolve({}, dynamicContext(role));
       expect(selected?.content).toContain(
-        "The current date and time is Monday, October 5, 2026 at 6:39 PM UTC."
+        "The current date and time is Monday, October 5, 2026 at 6:39 PM UTC (2026-10-05T18:39:00.000Z)."
       );
       expect(selected?.content).toContain("check with web_search");
+      expect(selected?.role).toBe("user");
     }
   );
 });
