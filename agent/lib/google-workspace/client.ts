@@ -46,7 +46,7 @@ const googleApiErrorSchema = z.object({
   response: z.object({ status: z.number() }),
 });
 
-export function googleApiErrorStatus(cause: unknown) {
+function googleApiErrorStatus(cause: unknown) {
   const result = googleApiErrorSchema.safeParse(cause);
   return result.success ? result.data.response.status : undefined;
 }

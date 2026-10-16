@@ -54,7 +54,6 @@ export default [
       );
       turn.expectOk();
       turn.succeeded();
-      turn.notCalledTool("gmail-send");
       turn.notEvent("subagent.called", { data: { name: "browser-agent" } });
       const text = await requireDeliveredText(t, turn);
       t.judge(

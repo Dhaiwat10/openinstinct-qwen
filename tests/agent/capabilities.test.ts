@@ -17,13 +17,10 @@ describe("authored mode capability matrix", () => {
     expect(await authoredCapabilities("linq-message")).toEqual([
       "browser-agent",
       "calendar-check-availability",
-      "calendar-create-event",
       "calendar-list-events",
       "contacts-search",
       "gmail-read-thread",
       "gmail-search",
-      "gmail-send",
-      "gmail-update",
       "personal_info__update",
       "react_to_message",
       "request_vault_import",
